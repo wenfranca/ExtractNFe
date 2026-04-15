@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Extract NF-e · Mart Minas</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --void:  #05070f;
+  --base:  #0b0e1c;
+  --panel: #10152a;
+  --panel2:#151c34;
+  --rim:   #1e2845;
+  --rim2:  #2a375e;
+  --ice:   #e8f0ff;
+  --mist:  #8899cc;
+  --fog:   #4a5880;
+  --neon:  #3d7fff;
+  --neon2: #00c9ff;
+  --hot:   #ff4b6e;
+  --warm:  #ffb347;
+  --mint:  #00e59b;
+  --font-display: 'Bebas Neue', sans-serif;
+  --font-ui:      'Outfit', sans-serif;
+}
+
+html { scroll-behavior: smooth; }
+body {
+  background: var(--void);
+  color: var(--ice);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+body::before {
+  content: '';
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+  opacity: 0.35;
+}
+
+/* ─── TOPBAR ─── */
+.topbar {
+  position: sticky; top: 0; z-index: 100;
+  background: rgba(5,7,15,0.88);
+  backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--rim);
+  padding: 0 32px;
+  display: flex; align-items: center; justify-content: space-between;
+  height: 60px;
+}
+.topbar-left { display: flex; align-items: center; gap: 16px; }
+.brand {
+  font-family: var(--font-display);
+  font-size: 26px; letter-spacing: 2px;
+  background: linear-gradient(90deg, var(--neon), var(--neon2));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+.brand-sep { width: 1px; height: 28px; background: var(--rim2); }
+.brand-sub { font-size: 12px; color: var(--fog); font-weight: 500; text-transform: uppercase; letter-spacing: 1px; }
+.topbar-right { display: flex; align-items: center; gap: 12px; }
+.status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--mint); box-shadow: 0 0 8px var(--mint); animation: pulse-dot 2s infinite; }
+@keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:0.4} }
+.status-dot.off { background: var(--fog); box-shadow: none; animation: none; }
+.status-label { font-size: 11px; color: var(--fog); }
+.upload-btn {
+  display: flex; align-items: center; gap: 7px;
+  background: linear-gradient(135deg, var(--neon), var(--neon2));
+  color: white; border: none; padding: 8px 18px; border-radius: 8px;
+  font-family: var(--font-ui); font-size: 12px; font-weight: 600;
+  cursor: pointer; letter-spacing: 0.5px; transition: all 0.2s;
+  text-transform: uppercase;
+}
+.upload-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 20px rgba(61,127,255,0.4); }
+.upload-btn.green { background: linear-gradient(135deg,var(--mint),#00b8a9); color:#001a12; }
+.upload-btn.green:hover { box-shadow: 0 4px 20px rgba(0,229,155,0.3); }
+.upload-btn.ghost { background: transparent; border: 1px solid var(--rim2); color: var(--fog); }
+.upload-btn.ghost:hover { border-color: var(--hot); color: var(--hot); box-shadow: none; transform: none; }
+#xml-input, #xlsx-import-input { display: none; }
+.dev-tag {
+  font-size: 10px; color: var(--fog); padding: 3px 10px;
+  border: 1px solid var(--rim); border-radius: 20px; font-weight: 500; letter-spacing: .4px;
+}
+
+/* ─── LAYOUT ─── */
+.wrap { position: relative; z-index: 1; padding: 24px 32px; max-width: 1700px; margin: 0 auto; }
+
+/* ─── DROP ZONE ─── */
+.dropzone {
+  border: 2px dashed var(--rim2); border-radius: 14px;
+  padding: 36px; text-align: center; cursor: pointer;
+  transition: border-color .2s, background .2s; margin-bottom: 20px;
+  position: relative;
+}
+.dropzone:hover, .dropzone.drag-over { border-color: var(--neon); background: rgba(61,127,255,.05); }
+.dropzone input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.dz-icon { font-size: 2rem; display: block; margin-bottom: 8px; opacity: .7; }
+.dz-label { font-size: 14px; font-weight: 500; color: var(--mist); margin-bottom: 4px; }
+.dz-sub { font-size: 11px; color: var(--fog); }
+
+/* ─── STATUS ─── */
+#status-bar { font-size: 12px; color: var(--fog); margin-bottom: 20px; min-height: 16px; }
+#status-bar .ok  { color: var(--mint); }
+#status-bar .err { color: var(--hot); }
+
+/* ─── KPI ROW ─── */
+.kpi-row { display: grid; grid-template-columns: repeat(5,1fr); gap: 14px; margin-bottom: 24px; }
+.kpi {
+  background: var(--panel); border: 1px solid var(--rim); border-radius: 12px;
+  padding: 13px 16px; position: relative; overflow: hidden;
+  transition: transform .2s, border-color .2s; cursor: default;
+}
+.kpi:hover { transform: translateY(-3px); border-color: var(--rim2); }
+.kpi-glow { position: absolute; top: -20px; right: -20px; width: 60px; height: 60px; border-radius: 50%; opacity: .12; filter: blur(16px); }
+.kpi.k-blue .kpi-glow { background: var(--neon); }
+.kpi.k-cyan .kpi-glow { background: var(--neon2); }
+.kpi.k-mint .kpi-glow { background: var(--mint); }
+.kpi.k-warm .kpi-glow { background: var(--warm); }
+.kpi.k-hot  .kpi-glow { background: var(--hot); }
+.kpi-top { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 10px; }
+.kpi-icon { font-size: 14px; opacity: .85; }
+.kpi-val {
+  font-family: var(--font-display); font-size: 28px; line-height: 1;
+  background: linear-gradient(135deg,var(--ice),var(--mist));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 3px;
+}
+.kpi.k-blue .kpi-val { background:linear-gradient(135deg,var(--neon),var(--neon2)); -webkit-background-clip:text; }
+.kpi.k-cyan .kpi-val { background:linear-gradient(135deg,var(--neon2),#a8f0ff);    -webkit-background-clip:text; }
+.kpi.k-mint .kpi-val { background:linear-gradient(135deg,var(--mint),#00b8a9);     -webkit-background-clip:text; }
+.kpi.k-warm .kpi-val { background:linear-gradient(135deg,var(--warm),#ffe066);     -webkit-background-clip:text; }
+.kpi.k-hot  .kpi-val { background:linear-gradient(135deg,var(--hot),#ff8c69);      -webkit-background-clip:text; }
+.kpi-label { font-size: 10px; color: var(--fog); font-weight: 600; text-transform: uppercase; letter-spacing: .6px; }
+
+/* ─── TABS ─── */
+.tab-bar { display: flex; border-bottom: 1px solid var(--rim); }
+.tab-btn {
+  font-family: var(--font-ui); font-size: 12px; font-weight: 600;
+  padding: 11px 22px; background: none; border: none;
+  border-bottom: 2px solid transparent; color: var(--fog);
+  cursor: pointer; letter-spacing: .5px; text-transform: uppercase;
+  transition: color .15s, border-color .15s;
+}
+.tab-btn.active { color: var(--neon2); border-bottom-color: var(--neon2); }
+.tab-btn:hover:not(.active) { color: var(--mist); }
+.tab-panel { display: none; padding: 20px 0 0; }
+.tab-panel.active { display: block; }
+
+/* ─── TABLE CARD ─── */
+.table-card { background: var(--panel); border: 1px solid var(--rim); border-radius: 14px; overflow: hidden; }
+.table-toolbar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 18px; border-bottom: 1px solid var(--rim); flex-wrap: wrap;
+}
+.tbl-search {
+  background: var(--panel2); border: 1px solid var(--rim); color: var(--ice);
+  padding: 6px 12px; border-radius: 7px; font-family: var(--font-ui); font-size: 12px;
+  outline: none; transition: border-color .15s; width: 220px;
+}
+.tbl-search:focus { border-color: var(--neon); }
+.tbl-search::placeholder { color: var(--fog); }
+.record-count { font-size: 11px; color: var(--fog); margin-left: auto; }
+.btn-sm {
+  font-family: var(--font-ui); font-size: 11px; font-weight: 600;
+  padding: 5px 13px; border-radius: 7px; border: 1px solid var(--rim2);
+  background: transparent; color: var(--mist); cursor: pointer;
+  transition: all .15s; text-transform: uppercase; letter-spacing: .4px;
+}
+.btn-sm:hover { border-color: var(--neon); color: var(--neon); }
+
+.table-wrap { overflow: auto; max-height: 54vh; }
+table { width: 100%; border-collapse: collapse; font-size: 12px; }
+thead th {
+  background: var(--panel2); color: var(--fog);
+  font-size: 10px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase;
+  padding: 10px 14px; text-align: left; position: sticky; top: 0;
+  white-space: nowrap; border-bottom: 1px solid var(--rim);
+  cursor: pointer; user-select: none; transition: color .15s;
+}
+thead th:hover { color: var(--ice); }
+thead th.sort-asc::after  { content: ' ↑'; color: var(--neon2); }
+thead th.sort-desc::after { content: ' ↓'; color: var(--neon2); }
+tbody tr { border-bottom: 1px solid var(--rim); transition: background .1s; }
+tbody tr:last-child { border-bottom: none; }
+tbody tr:hover { background: rgba(255,255,255,.025); }
+tbody td { padding: 9px 14px; white-space: nowrap; color: var(--mist); }
+tbody td.td-loja  { color: var(--neon2); font-weight: 700; }
+tbody td.td-num   { text-align: right; color: var(--mint); font-weight: 600; font-variant-numeric: tabular-nums; }
+tbody td.td-date  { color: var(--warm); font-size: 11px; }
+tbody td.td-code  { color: var(--ice); font-size: 11px; }
+tbody td.td-cnpj  { font-size: 11px; color: var(--fog); }
+tbody td.td-desc  { color: var(--ice); }
+.empty-cell { text-align: center; padding: 52px !important; color: var(--fog); font-size: 13px; white-space: normal !important; }
+.empty-icon { font-size: 2rem; display: block; margin-bottom: 8px; opacity: .5; }
+
+/* ─── LOADER ─── */
+#loader {
+  display: none; position: fixed; inset: 0; z-index: 999;
+  background: rgba(5,7,15,.85); backdrop-filter: blur(8px);
+  align-items: center; justify-content: center; flex-direction: column; gap: 14px;
+}
+.spinner { width:40px;height:40px;border-radius:50%;border:3px solid var(--rim2);border-top-color:var(--neon2);animation:spin .8s linear infinite; }
+@keyframes spin { to{transform:rotate(360deg)} }
+.loader-txt { font-size: 13px; color: var(--mist); }
+</style>
+</head>
+<body>
+
+<div id="loader"><div class="spinner"></div><div class="loader-txt">Processando XMLs…</div></div>
+
+<div class="topbar">
+  <div class="topbar-left">
+    <div class="brand">EXTRACT NF-e</div>
+    <div class="brand-sep"></div>
+    <div class="brand-sub">Desenvolvido por Wendell França</div>
+  </div>
+  <div class="topbar-right">
+    <div class="status-dot off" id="status-dot"></div>
+    <div class="status-label" id="status-label">Sem dados</div>
+    <input type="file" id="xlsx-import-input" accept=".xlsx" onchange="handleXlsxImport(this)">
+    <button class="upload-btn green" onclick="document.getElementById('xlsx-import-input').click()">⬆ Importar histórico</button>
+    <button class="upload-btn"       onclick="exportarXlsx()">⬇ Exportar .xlsx</button>
+    <button class="upload-btn ghost" onclick="limparTudo()">✕ Limpar</button>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <div class="dropzone" id="dropzone"
+       ondragover="dragOver(event)" ondragleave="dragLeave(event)" ondrop="dropFiles(event)"
+       onclick="document.getElementById('xml-input').click()">
+    <input type="file" id="xml-input" multiple webkitdirectory style="display:none" onchange="handleFiles(this.files)">
+    <span class="dz-icon">📂</span>
+    <div class="dz-label">Selecione a pasta de XMLs autorizados</div>
+    <div class="dz-sub">todos os arquivos .xml da pasta serão lidos · duplicatas ignoradas automaticamente</div>
+  </div>
+
+  <div id="status-bar"></div>
+
+  <div class="kpi-row">
+    <div class="kpi k-blue"><div class="kpi-glow"></div><div class="kpi-top"><span class="kpi-icon">🧾</span></div><div class="kpi-val" id="kpi-notas">0</div><div class="kpi-label">Notas Fiscais</div></div>
+    <div class="kpi k-cyan"><div class="kpi-glow"></div><div class="kpi-top"><span class="kpi-icon">📦</span></div><div class="kpi-val" id="kpi-itens">0</div><div class="kpi-label">Itens</div></div>
+    <div class="kpi k-mint"><div class="kpi-glow"></div><div class="kpi-top"><span class="kpi-icon">💰</span></div><div class="kpi-val" id="kpi-vtotal">—</div><div class="kpi-label">Valor Total NF</div></div>
+    <div class="kpi k-warm"><div class="kpi-glow"></div><div class="kpi-top"><span class="kpi-icon">🏪</span></div><div class="kpi-val" id="kpi-lojas">0</div><div class="kpi-label">Lojas únicas</div></div>
+    <div class="kpi k-hot" ><div class="kpi-glow"></div><div class="kpi-top"><span class="kpi-icon">🏭</span></div><div class="kpi-val" id="kpi-emit">0</div><div class="kpi-label">Emitentes</div></div>
+  </div>
+
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab('nf',this)">Base Completa</button>
+    <button class="tab-btn"        onclick="switchTab('itens',this)">Itens</button>
+  </div>
+
+  <!-- BASE COMPLETA -->
+  <div class="tab-panel active" id="tab-nf">
+    <div class="table-card">
+      <div class="table-toolbar">
+        <input class="tbl-search" id="search-nf" placeholder="Filtrar…" oninput="renderNF()">
+        <span class="record-count" id="count-nf">0 registros</span>
+        <button class="btn-sm" onclick="exportarAba('nf')">⬇ exportar aba</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th onclick="sortTable('nf','Arquivo')">Arquivo</th>
+            <th onclick="sortTable('nf','Loja')">Loja</th>
+            <th onclick="sortTable('nf','Numero NF')">Nº NF</th>
+            <th onclick="sortTable('nf','Data Emissão')">Emissão</th>
+            <th onclick="sortTable('nf','Vencimento')">Vencimento</th>
+            <th onclick="sortTable('nf','CNPJ Emitente')">CNPJ Emitente</th>
+            <th onclick="sortTable('nf','CNPJ/CPF Destinatário')">CNPJ/CPF Dest.</th>
+            <th onclick="sortTable('nf','Quantidade Total')">Qtd Total</th>
+            <th onclick="sortTable('nf','V. Total NF')">V. Total NF</th>
+          </tr></thead>
+          <tbody id="tbody-nf">
+            <tr><td colspan="9" class="empty-cell"><span class="empty-icon">🧾</span>Nenhuma nota carregada</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ITENS -->
+  <div class="tab-panel" id="tab-itens">
+    <div class="table-card">
+      <div class="table-toolbar">
+        <input class="tbl-search" id="search-itens" placeholder="Filtrar…" oninput="renderItens()">
+        <span class="record-count" id="count-itens">0 registros</span>
+        <button class="btn-sm" onclick="exportarAba('itens')">⬇ exportar aba</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th onclick="sortTable('itens','Arquivo')">Arquivo</th>
+            <th onclick="sortTable('itens','Numero NF')">Nº NF</th>
+            <th onclick="sortTable('itens','Loja')">Loja</th>
+            <th onclick="sortTable('itens','Data Emissão')">Emissão</th>
+            <th onclick="sortTable('itens','Descrição')">Descrição</th>
+            <th onclick="sortTable('itens','NCM')">NCM</th>
+            <th onclick="sortTable('itens','CFOP')">CFOP</th>
+            <th onclick="sortTable('itens','Quantidade')">Qtd</th>
+            <th onclick="sortTable('itens','V. Unitário')">V. Unitário</th>
+            <th onclick="sortTable('itens','V. Total Item')">V. Total</th>
+          </tr></thead>
+          <tbody id="tbody-itens">
+            <tr><td colspan="10" class="empty-cell"><span class="empty-icon">📦</span>Nenhum item carregado</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+let dbNF    = [];
+let dbItens = [];
+let sortState = { nf:{col:null,dir:1}, itens:{col:null,dir:1} };
+
+function dragOver(e)  { e.preventDefault(); e.currentTarget.classList.add('drag-over'); }
+function dragLeave(e) { e.currentTarget.classList.remove('drag-over'); }
+function dropFiles(e) { e.preventDefault(); e.currentTarget.classList.remove('drag-over'); handleFiles(e.dataTransfer.files); }
+
+async function handleFiles(files) {
+  const arr = Array.from(files).filter(f => f.name.toLowerCase().endsWith('.xml'));
+  if (!arr.length) { setStatus('Nenhum arquivo .xml encontrado.','err'); return; }
+  document.getElementById('loader').style.display = 'flex';
+  await new Promise(r => setTimeout(r,30));
+
+  let added=0, skipped=0, errors=0;
+
+  for (const file of arr) {
+    try {
+      const text = await readText(file);
+      const doc  = new DOMParser().parseFromString(text,'application/xml');
+      if (doc.querySelector('parsererror')) { errors++; continue; }
+
+      const g  = sel => { const el=doc.querySelector(sel); return el?el.textContent.trim():null; };
+      const chave      = file.name;
+      const numeroNF   = g('nNF');
+      const dhEmi      = g('dhEmi');
+      const cnpjEmit   = g('emit > CNPJ');
+      const cnpjDest   = g('dest > CNPJ');
+      const cpfDest    = g('dest > CPF');
+      const dVenc      = g('dup > dVenc');
+      const vNF        = g('ICMSTot > vNF');
+      const cnpjCpfDest = cnpjDest||cpfDest||null;
+      const loja        = extrairLoja(cnpjCpfDest);
+      const dataEmissao = dhEmi ? dhEmi.substring(0,10) : null;
+      const vencimento  = dVenc ? dVenc.substring(0,10) : null;
+      const totalNF     = vNF ? parseFloat(vNF) : 0;
+
+      if (dbNF.find(r=>r['Chave']===chave)) { skipped++; continue; }
+
+      const detNodes = doc.querySelectorAll('det');
+      let qtdTotal=0;
+      for (const det of detNodes) {
+        const gd = tag => { const el=det.querySelector(tag); return el?el.textContent.trim():null; };
+        const qtd  = parseFloat(gd('qCom')||'0');
+        const vUni = parseFloat(gd('vUnCom')||'0');
+        const vPrd = parseFloat(gd('vProd')||'0');
+        qtdTotal += qtd;
+        dbItens.push({'Arquivo':chave,'Numero NF':numeroNF,'Loja':loja,'Data Emissão':dataEmissao,
+          'Descrição':gd('xProd'),'NCM':gd('NCM'),'CFOP':gd('CFOP'),
+          'Quantidade':qtd,'V. Unitário':vUni,'V. Total Item':vPrd});
+      }
+      dbNF.push({'Chave':chave,'Arquivo':chave,'Loja':loja,'Numero NF':numeroNF,
+        'Data Emissão':dataEmissao,'Vencimento':vencimento,
+        'CNPJ Emitente':cnpjEmit,'CNPJ/CPF Destinatário':cnpjCpfDest,
+        'Quantidade Total':qtdTotal,'V. Total NF':totalNF});
+      added++;
+    } catch(e) { errors++; }
+  }
+
+  document.getElementById('loader').style.display='none';
+  let msg=`${added} nota(s) adicionada(s)`;
+  if(skipped) msg+=` · ${skipped} duplicata(s) ignorada(s)`;
+  if(errors)  msg+=` · <span class="err">${errors} erro(s)</span>`;
+  setStatus(msg, added>0?'ok':'');
+  refresh();
+}
+
+function extrairLoja(v) { if(v&&v.length>=4) return parseInt('2'+v.slice(-4,-2)); return null; }
+function readText(file) {
+  return new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=e=>res(e.target.result); fr.onerror=()=>rej(); fr.readAsText(file,'UTF-8'); });
+}
+function fmtDate(d) { return d?d.split('-').reverse().join('/'):'—'; }
+function fmtBRL(n)  { if(n==null) return '—'; return Number(n).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
+function fmtNum(n,dec=2) { if(n==null||n==='') return '—'; return Number(n).toLocaleString('pt-BR',{minimumFractionDigits:dec,maximumFractionDigits:dec}); }
+function fmtCNPJ(v) {
+  if(!v) return '—';
+  if(v.length===14) return v.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/,'$1.$2.$3/$4-$5');
+  if(v.length===11) return v.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/,'$1.$2.$3-$4');
+  return v;
+}
+function trunc(s,n) { if(!s) return '—'; return s.length>n?s.slice(0,n)+'…':s; }
+function setStatus(html,type='') {
+  const el=document.getElementById('status-bar');
+  el.innerHTML=type==='ok'?`<span class="ok">✓ ${html}</span>`:html;
+}
+
+function updateKPIs() {
+  const total=dbNF.reduce((s,r)=>s+(r['V. Total NF']||0),0);
+  const lojas=new Set(dbNF.map(r=>r['Loja']).filter(Boolean)).size;
+  const emits=new Set(dbNF.map(r=>r['CNPJ Emitente']).filter(Boolean)).size;
+  document.getElementById('kpi-notas').textContent  = dbNF.length.toLocaleString('pt-BR');
+  document.getElementById('kpi-itens').textContent  = dbItens.length.toLocaleString('pt-BR');
+  document.getElementById('kpi-vtotal').textContent = fmtBRL(total);
+  document.getElementById('kpi-lojas').textContent  = lojas;
+  document.getElementById('kpi-emit').textContent   = emits;
+  const dot=document.getElementById('status-dot');
+  const lbl=document.getElementById('status-label');
+  if(dbNF.length){ dot.classList.remove('off'); lbl.textContent=`${dbNF.length} nota(s) carregada(s)`; }
+  else            { dot.classList.add('off');    lbl.textContent='Sem dados'; }
+}
+
+function switchTab(tab,btn) {
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
+  document.getElementById('tab-'+tab).classList.add('active');
+}
+
+function sortTable(which,col) {
+  const s=sortState[which]; s.dir=s.col===col?-s.dir:1; s.col=col;
+  which==='nf'?renderNF():renderItens();
+}
+function sortedData(data,which) {
+  const{col,dir}=sortState[which]; if(!col) return[...data];
+  return[...data].sort((a,b)=>{
+    let va=a[col]??'',vb=b[col]??'';
+    if(typeof va==='number'&&typeof vb==='number') return dir*(va-vb);
+    return dir*String(va).localeCompare(String(vb),'pt-BR');
+  });
+}
+
+const NF_COLS  =['Arquivo','Loja','Numero NF','Data Emissão','Vencimento','CNPJ Emitente','CNPJ/CPF Destinatário','Quantidade Total','V. Total NF'];
+const IT_COLS  =['Arquivo','Numero NF','Loja','Data Emissão','Descrição','NCM','CFOP','Quantidade','V. Unitário','V. Total Item'];
+
+function renderNF() {
+  const q=document.getElementById('search-nf').value.toLowerCase();
+  let rows=sortedData(dbNF,'nf');
+  if(q) rows=rows.filter(r=>Object.values(r).some(v=>String(v).toLowerCase().includes(q)));
+  document.getElementById('count-nf').textContent=`${rows.length} registros`;
+  document.querySelectorAll('#tab-nf thead th').forEach((th,i)=>{
+    th.classList.remove('sort-asc','sort-desc');
+    if(sortState.nf.col===NF_COLS[i]) th.classList.add(sortState.nf.dir===1?'sort-asc':'sort-desc');
+  });
+  const tbody=document.getElementById('tbody-nf');
+  if(!rows.length){tbody.innerHTML=`<tr><td colspan="9" class="empty-cell"><span class="empty-icon">🧾</span>Nenhuma nota carregada</td></tr>`;return;}
+  tbody.innerHTML=rows.map(r=>`<tr>
+    <td class="td-code" title="${r['Arquivo']}">${trunc(r['Arquivo'],26)}</td>
+    <td class="td-loja">${r['Loja']??'—'}</td>
+    <td class="td-code">${r['Numero NF']??'—'}</td>
+    <td class="td-date">${fmtDate(r['Data Emissão'])}</td>
+    <td class="td-date">${fmtDate(r['Vencimento'])}</td>
+    <td class="td-cnpj">${fmtCNPJ(r['CNPJ Emitente'])}</td>
+    <td class="td-cnpj">${fmtCNPJ(r['CNPJ/CPF Destinatário'])}</td>
+    <td class="td-num">${fmtNum(r['Quantidade Total'],0)}</td>
+    <td class="td-num">${fmtBRL(r['V. Total NF'])}</td>
+  </tr>`).join('');
+}
+
+function renderItens() {
+  const q=document.getElementById('search-itens').value.toLowerCase();
+  let rows=sortedData(dbItens,'itens');
+  if(q) rows=rows.filter(r=>Object.values(r).some(v=>String(v).toLowerCase().includes(q)));
+  document.getElementById('count-itens').textContent=`${rows.length} registros`;
+  document.querySelectorAll('#tab-itens thead th').forEach((th,i)=>{
+    th.classList.remove('sort-asc','sort-desc');
+    if(sortState.itens.col===IT_COLS[i]) th.classList.add(sortState.itens.dir===1?'sort-asc':'sort-desc');
+  });
+  const tbody=document.getElementById('tbody-itens');
+  if(!rows.length){tbody.innerHTML=`<tr><td colspan="10" class="empty-cell"><span class="empty-icon">📦</span>Nenhum item carregado</td></tr>`;return;}
+  tbody.innerHTML=rows.map(r=>`<tr>
+    <td class="td-code" title="${r['Arquivo']}">${trunc(r['Arquivo'],22)}</td>
+    <td class="td-code">${r['Numero NF']??'—'}</td>
+    <td class="td-loja">${r['Loja']??'—'}</td>
+    <td class="td-date">${fmtDate(r['Data Emissão'])}</td>
+    <td class="td-desc" title="${r['Descrição']||''}">${trunc(r['Descrição'],34)}</td>
+    <td class="td-cnpj">${r['NCM']??'—'}</td>
+    <td class="td-cnpj">${r['CFOP']??'—'}</td>
+    <td class="td-num">${fmtNum(r['Quantidade'],3)}</td>
+    <td class="td-num">${fmtBRL(r['V. Unitário'])}</td>
+    <td class="td-num">${fmtBRL(r['V. Total Item'])}</td>
+  </tr>`).join('');
+}
+
+function refresh() { updateKPIs(); renderNF(); renderItens(); }
+
+function exportarXlsx() {
+  if(!dbNF.length){setStatus('Nada para exportar.','err');return;}
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(dbNF.map(r=>({...r,Chave:undefined}))),'Base Completa');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(dbItens),'Itens');
+  XLSX.writeFile(wb,'notas_historico.xlsx');
+  setStatus('Exportado com sucesso.','ok');
+}
+function exportarAba(which) {
+  const data=which==='nf'?dbNF.map(r=>({...r,Chave:undefined})):dbItens;
+  const sheet=which==='nf'?'Base Completa':'Itens';
+  if(!data.length){setStatus('Nada para exportar.','err');return;}
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(data),sheet);
+  XLSX.writeFile(wb,`notas_${sheet.toLowerCase().replace(' ','_')}.xlsx`);
+}
+
+function handleXlsxImport(input) {
+  const file=input.files[0]; if(!file) return;
+  const fr=new FileReader();
+  fr.onload=e=>{
+    try{
+      const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
+      let addedNF=0,addedIt=0;
+      if(wb.SheetNames.includes('Base Completa')){
+        for(const r of XLSX.utils.sheet_to_json(wb.Sheets['Base Completa'])){
+          const chave=r['Chave']||r['Arquivo'];
+          if(!dbNF.find(x=>x['Chave']===chave)){r['Chave']=chave;dbNF.push(r);addedNF++;}
+        }
+      }
+      if(wb.SheetNames.includes('Itens')){
+        const exist=new Set(dbItens.map(r=>r['Arquivo']+'|'+r['Descrição']+'|'+r['Quantidade']));
+        for(const r of XLSX.utils.sheet_to_json(wb.Sheets['Itens'])){
+          const k=r['Arquivo']+'|'+r['Descrição']+'|'+r['Quantidade'];
+          if(!exist.has(k)){dbItens.push(r);exist.add(k);addedIt++;}
+        }
+      }
+      setStatus(`Histórico importado: ${addedNF} nota(s), ${addedIt} item(ns).`,'ok');
+      refresh();
+    }catch(err){setStatus('Erro ao ler .xlsx: '+err.message,'err');}
+    input.value='';
+  };
+  fr.readAsArrayBuffer(file);
+}
+
+function limparTudo() {
+  if(!dbNF.length||confirm('Limpar todos os dados?')){
+    dbNF=[];dbItens=[];setStatus('Dados limpos.');refresh();
+  }
+}
+</script>
+</body>
+</html>
