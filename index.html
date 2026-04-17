@@ -3,7 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Extract NF-e · Mart Minas</title>
+<title>Software com acesso restrito · Mart Minas</title>
+<!-- Software com acesso restrito -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -89,7 +90,30 @@ body::before {
   border: 1px solid var(--rim); border-radius: 20px; font-weight: 500; letter-spacing: .4px;
 }
 
-/* ─── LAYOUT ─── */
+/* ─── LOGIN OVERLAY ─── */
+.login-overlay{position:fixed;inset:0;z-index:9999;background:var(--void);
+  display:flex;align-items:center;justify-content:center;}
+.login-overlay.hidden{display:none;}
+.login-box{background:var(--panel);border:1px solid var(--rim2);border-radius:16px;
+  padding:48px 40px;width:100%;max-width:400px;text-align:center;
+  box-shadow:0 32px 80px rgba(0,0,0,.8);}
+.login-brand{font-family:var(--font-display);font-size:42px;letter-spacing:3px;
+  background:linear-gradient(90deg,var(--neon),var(--neon2));
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:6px;}
+.login-sub{font-size:11px;color:var(--fog);letter-spacing:.08em;text-transform:uppercase;margin-bottom:36px;}
+.login-field{position:relative;margin-bottom:16px;}
+.login-field input{width:100%;background:var(--panel2);border:1px solid var(--rim);
+  border-radius:8px;padding:12px 16px;color:var(--ice);font-family:var(--font-ui);
+  font-size:14px;outline:none;transition:border-color .2s;text-align:left;}
+.login-field input:focus{border-color:var(--neon);}
+.login-field input::placeholder{color:var(--fog);}
+.login-btn{width:100%;margin-top:8px;background:linear-gradient(135deg,var(--neon),var(--neon2));
+  color:#fff;border:none;border-radius:8px;padding:13px;font-family:var(--font-ui);
+  font-size:14px;font-weight:600;cursor:pointer;letter-spacing:.5px;transition:all .2s;}
+.login-btn:hover{transform:translateY(-1px);box-shadow:0 4px 20px rgba(61,127,255,.4);}
+.login-err{color:var(--hot);font-size:12px;margin-top:12px;min-height:18px;}
+.login-footer{font-size:10px;color:var(--fog);margin-top:24px;letter-spacing:.06em;}
+
 .wrap { position: relative; z-index: 1; padding: 24px 32px; max-width: 1700px; margin: 0 auto; }
 
 /* ─── DROP ZONE ─── */
@@ -212,6 +236,23 @@ tbody td.td-desc  { color: var(--ice); }
 </head>
 <body>
 
+<!-- LOGIN OVERLAY -->
+<div class="login-overlay" id="login-overlay">
+  <div class="login-box">
+    <div class="login-brand">EXTRACT NF-e</div>
+    <div class="login-sub">Desenvolvido por Wendell França</div>
+    <div class="login-field">
+      <input type="text" id="login-user" placeholder="Usuário" autocomplete="off">
+    </div>
+    <div class="login-field">
+      <input type="password" id="login-pass" placeholder="Senha" onkeydown="if(event.key==='Enter')doLogin()">
+    </div>
+    <button class="login-btn" onclick="doLogin()">Entrar</button>
+    <div class="login-err" id="login-err"></div>
+    <div class="login-footer">Software com acesso restrito</div>
+  </div>
+</div>
+
 <div id="loader"><div class="spinner"></div><div class="loader-txt">Processando XMLs…</div></div>
 
 <div class="topbar">
@@ -267,18 +308,20 @@ tbody td.td-desc  { color: var(--ice); }
       <div class="table-wrap">
         <table>
           <thead><tr>
+            <th onclick="sortTable('nf','Modelo')">Modelo</th>
             <th onclick="sortTable('nf','Arquivo')">Arquivo</th>
             <th onclick="sortTable('nf','Loja')">Loja</th>
             <th onclick="sortTable('nf','Numero NF')">Nº NF</th>
             <th onclick="sortTable('nf','Data Emissão')">Emissão</th>
             <th onclick="sortTable('nf','Vencimento')">Vencimento</th>
+            <th onclick="sortTable('nf','Nome Emitente')">Emitente</th>
             <th onclick="sortTable('nf','CNPJ Emitente')">CNPJ Emitente</th>
             <th onclick="sortTable('nf','CNPJ/CPF Destinatário')">CNPJ/CPF Dest.</th>
             <th onclick="sortTable('nf','Quantidade Total')">Qtd Total</th>
             <th onclick="sortTable('nf','V. Total NF')">V. Total NF</th>
           </tr></thead>
           <tbody id="tbody-nf">
-            <tr><td colspan="9" class="empty-cell"><span class="empty-icon">🧾</span>Nenhuma nota carregada</td></tr>
+            <tr><td colspan="11" class="empty-cell"><span class="empty-icon">🧾</span>Nenhuma nota carregada</td></tr>
           </tbody>
         </table>
       </div>
@@ -297,18 +340,19 @@ tbody td.td-desc  { color: var(--ice); }
         <table>
           <thead><tr>
             <th onclick="sortTable('itens','Arquivo')">Arquivo</th>
+            <th onclick="sortTable('itens','Modelo')">Modelo</th>
             <th onclick="sortTable('itens','Numero NF')">Nº NF</th>
             <th onclick="sortTable('itens','Loja')">Loja</th>
             <th onclick="sortTable('itens','Data Emissão')">Emissão</th>
             <th onclick="sortTable('itens','Descrição')">Descrição</th>
-            <th onclick="sortTable('itens','NCM')">NCM</th>
+            <th onclick="sortTable('itens','NCM')">NCM/Classe</th>
             <th onclick="sortTable('itens','CFOP')">CFOP</th>
             <th onclick="sortTable('itens','Quantidade')">Qtd</th>
             <th onclick="sortTable('itens','V. Unitário')">V. Unitário</th>
             <th onclick="sortTable('itens','V. Total Item')">V. Total</th>
           </tr></thead>
           <tbody id="tbody-itens">
-            <tr><td colspan="10" class="empty-cell"><span class="empty-icon">📦</span>Nenhum item carregado</td></tr>
+            <tr><td colspan="11" class="empty-cell"><span class="empty-icon">📦</span>Nenhum item carregado</td></tr>
           </tbody>
         </table>
       </div>
@@ -318,6 +362,25 @@ tbody td.td-desc  { color: var(--ice); }
 </div>
 
 <script>
+// ── LOGIN ──
+const _u = [
+  {u:'wenfranca', p:'@#7263Wf'},
+  {u:'gisdias',   p:'@#1234Gd'}
+];
+function doLogin() {
+  const u = document.getElementById('login-user').value.trim();
+  const p = document.getElementById('login-pass').value;
+  const ok = _u.find(x => x.u === u && x.p === p);
+  if (ok) {
+    document.getElementById('login-overlay').classList.add('hidden');
+  } else {
+    const err = document.getElementById('login-err');
+    err.textContent = 'Usuário ou senha inválidos.';
+    document.getElementById('login-pass').value = '';
+    setTimeout(() => { err.textContent = ''; }, 3000);
+  }
+}
+
 let dbNF    = [];
 let dbItens = [];
 let sortState = { nf:{col:null,dir:1}, itens:{col:null,dir:1} };
@@ -340,39 +403,89 @@ async function handleFiles(files) {
       const doc  = new DOMParser().parseFromString(text,'application/xml');
       if (doc.querySelector('parsererror')) { errors++; continue; }
 
-      const g  = sel => { const el=doc.querySelector(sel); return el?el.textContent.trim():null; };
-      const chave      = file.name;
-      const numeroNF   = g('nNF');
-      const dhEmi      = g('dhEmi');
-      const cnpjEmit   = g('emit > CNPJ');
-      const cnpjDest   = g('dest > CNPJ');
-      const cpfDest    = g('dest > CPF');
-      const dVenc      = g('dup > dVenc');
-      const vNF        = g('ICMSTot > vNF');
-      const cnpjCpfDest = cnpjDest||cpfDest||null;
+      const chave = file.name;
+      if (dbNF.find(r=>r['Chave']===chave)) { skipped++; continue; }
+
+      const g = sel => { const el=doc.querySelector(sel); return el?el.textContent.trim():null; };
+
+      // ── detecta modelo pelo namespace / tag raiz ──
+      const rootTag = doc.documentElement.tagName; // nf3eProc ou nfeProc
+      const isNF3 = rootTag.toLowerCase().includes('nf3') ||
+                    !!doc.querySelector('NF3e, nf3eProc, infNF3e');
+
+      let numeroNF, dhEmi, cnpjEmit, nomeEmit, cnpjCpfDest, dVenc, vNF, modelo;
+
+      if (isNF3) {
+        // ── NF3-e (energia elétrica - CEMIG etc) ──
+        modelo      = 'NF3-e';
+        numeroNF    = g('nNF');
+        dhEmi       = g('dhEmi');
+        cnpjEmit    = g('emit > CNPJ');
+        nomeEmit    = g('emit > xNome');
+        cnpjCpfDest = g('dest > CNPJ') || g('dest > CPF');
+        dVenc       = g('gFat > dVencFat');          // campo específico NF3-e
+        vNF         = g('total > vNF');
+      } else {
+        // ── NF-e (mod 55) ──
+        modelo      = 'NF-e';
+        numeroNF    = g('nNF');
+        dhEmi       = g('dhEmi');
+        cnpjEmit    = g('emit > CNPJ');
+        nomeEmit    = g('emit > xNome');
+        cnpjCpfDest = g('dest > CNPJ') || g('dest > CPF');
+        dVenc       = g('dup > dVenc');
+        vNF         = g('ICMSTot > vNF');
+      }
+
       const loja        = extrairLoja(cnpjCpfDest);
       const dataEmissao = dhEmi ? dhEmi.substring(0,10) : null;
       const vencimento  = dVenc ? dVenc.substring(0,10) : null;
       const totalNF     = vNF ? parseFloat(vNF) : 0;
 
-      if (dbNF.find(r=>r['Chave']===chave)) { skipped++; continue; }
+      // ── itens ──
+      // NF3-e: NFdet > det > detItem > prod  |  NF-e: det > prod
+      const detNodes = isNF3
+        ? doc.querySelectorAll('NFdet > det')
+        : doc.querySelectorAll('det');
 
-      const detNodes = doc.querySelectorAll('det');
       let qtdTotal=0;
       for (const det of detNodes) {
-        const gd = tag => { const el=det.querySelector(tag); return el?el.textContent.trim():null; };
-        const qtd  = parseFloat(gd('qCom')||'0');
-        const vUni = parseFloat(gd('vUnCom')||'0');
-        const vPrd = parseFloat(gd('vProd')||'0');
+        const gd  = tag => { const el=det.querySelector(tag); return el?el.textContent.trim():null; };
+        // NF3-e usa qFaturada; NF-e usa qCom
+        const qtd  = parseFloat((isNF3 ? gd('qFaturada') : gd('qCom'))  || '0');
+        // NF3-e usa vItem como unitário; NF-e usa vUnCom
+        const vUni = parseFloat((isNF3 ? gd('vItem')     : gd('vUnCom')) || '0');
+        const vPrd = parseFloat(gd('vProd') || '0');
         qtdTotal += qtd;
-        dbItens.push({'Arquivo':chave,'Numero NF':numeroNF,'Loja':loja,'Data Emissão':dataEmissao,
-          'Descrição':gd('xProd'),'NCM':gd('NCM'),'CFOP':gd('CFOP'),
-          'Quantidade':qtd,'V. Unitário':vUni,'V. Total Item':vPrd});
+        dbItens.push({
+          'Arquivo':       chave,
+          'Modelo':        modelo,
+          'Numero NF':     numeroNF,
+          'Loja':          loja,
+          'Data Emissão':  dataEmissao,
+          'Descrição':     gd('xProd'),
+          'NCM':           gd('NCM') || gd('cClass'),   // NF3-e usa cClass
+          'CFOP':          gd('CFOP'),
+          'Quantidade':    qtd,
+          'V. Unitário':   vUni,
+          'V. Total Item': vPrd
+        });
       }
-      dbNF.push({'Chave':chave,'Arquivo':chave,'Loja':loja,'Numero NF':numeroNF,
-        'Data Emissão':dataEmissao,'Vencimento':vencimento,
-        'CNPJ Emitente':cnpjEmit,'CNPJ/CPF Destinatário':cnpjCpfDest,
-        'Quantidade Total':qtdTotal,'V. Total NF':totalNF});
+
+      dbNF.push({
+        'Chave':                 chave,
+        'Arquivo':               chave,
+        'Modelo':                modelo,
+        'Loja':                  loja,
+        'Numero NF':             numeroNF,
+        'Data Emissão':          dataEmissao,
+        'Vencimento':            vencimento,
+        'CNPJ Emitente':         cnpjEmit,
+        'Nome Emitente':         nomeEmit,
+        'CNPJ/CPF Destinatário': cnpjCpfDest,
+        'Quantidade Total':      qtdTotal,
+        'V. Total NF':           totalNF
+      });
       added++;
     } catch(e) { errors++; }
   }
@@ -439,8 +552,15 @@ function sortedData(data,which) {
   });
 }
 
-const NF_COLS  =['Arquivo','Loja','Numero NF','Data Emissão','Vencimento','CNPJ Emitente','CNPJ/CPF Destinatário','Quantidade Total','V. Total NF'];
-const IT_COLS  =['Arquivo','Numero NF','Loja','Data Emissão','Descrição','NCM','CFOP','Quantidade','V. Unitário','V. Total Item'];
+const NF_COLS  =['Modelo','Arquivo','Loja','Numero NF','Data Emissão','Vencimento','Nome Emitente','CNPJ Emitente','CNPJ/CPF Destinatário','Quantidade Total','V. Total NF'];
+const IT_COLS  =['Modelo','Numero NF','Loja','Data Emissão','Descrição','NCM','CFOP','Quantidade','V. Unitário','V. Total Item'];
+
+// badge de modelo
+function modeloBadge(m) {
+  if(!m) return '—';
+  const cls = m==='NF3-e'?'color:var(--warm)':'color:var(--neon2)';
+  return `<span style="font-size:10px;font-weight:700;${cls}">${m}</span>`;
+}
 
 function renderNF() {
   const q=document.getElementById('search-nf').value.toLowerCase();
@@ -452,13 +572,15 @@ function renderNF() {
     if(sortState.nf.col===NF_COLS[i]) th.classList.add(sortState.nf.dir===1?'sort-asc':'sort-desc');
   });
   const tbody=document.getElementById('tbody-nf');
-  if(!rows.length){tbody.innerHTML=`<tr><td colspan="9" class="empty-cell"><span class="empty-icon">🧾</span>Nenhuma nota carregada</td></tr>`;return;}
+  if(!rows.length){tbody.innerHTML=`<tr><td colspan="11" class="empty-cell"><span class="empty-icon">🧾</span>Nenhuma nota carregada</td></tr>`;return;}
   tbody.innerHTML=rows.map(r=>`<tr>
-    <td class="td-code" title="${r['Arquivo']}">${trunc(r['Arquivo'],26)}</td>
+    <td>${modeloBadge(r['Modelo'])}</td>
+    <td class="td-code" title="${r['Arquivo']}">${trunc(r['Arquivo'],22)}</td>
     <td class="td-loja">${r['Loja']??'—'}</td>
     <td class="td-code">${r['Numero NF']??'—'}</td>
     <td class="td-date">${fmtDate(r['Data Emissão'])}</td>
     <td class="td-date">${fmtDate(r['Vencimento'])}</td>
+    <td class="td-desc" title="${r['Nome Emitente']||''}">${trunc(r['Nome Emitente'],22)}</td>
     <td class="td-cnpj">${fmtCNPJ(r['CNPJ Emitente'])}</td>
     <td class="td-cnpj">${fmtCNPJ(r['CNPJ/CPF Destinatário'])}</td>
     <td class="td-num">${fmtNum(r['Quantidade Total'],0)}</td>
@@ -476,9 +598,9 @@ function renderItens() {
     if(sortState.itens.col===IT_COLS[i]) th.classList.add(sortState.itens.dir===1?'sort-asc':'sort-desc');
   });
   const tbody=document.getElementById('tbody-itens');
-  if(!rows.length){tbody.innerHTML=`<tr><td colspan="10" class="empty-cell"><span class="empty-icon">📦</span>Nenhum item carregado</td></tr>`;return;}
+  if(!rows.length){tbody.innerHTML=`<tr><td colspan="11" class="empty-cell"><span class="empty-icon">📦</span>Nenhum item carregado</td></tr>`;return;}
   tbody.innerHTML=rows.map(r=>`<tr>
-    <td class="td-code" title="${r['Arquivo']}">${trunc(r['Arquivo'],22)}</td>
+    <td>${modeloBadge(r['Modelo'])}</td>
     <td class="td-code">${r['Numero NF']??'—'}</td>
     <td class="td-loja">${r['Loja']??'—'}</td>
     <td class="td-date">${fmtDate(r['Data Emissão'])}</td>
