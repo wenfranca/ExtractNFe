@@ -220,6 +220,16 @@ tbody td.td-date  { color: var(--warm); font-size: 11px; }
 tbody td.td-code  { color: var(--ice); font-size: 11px; }
 tbody td.td-cnpj  { font-size: 11px; color: var(--fog); }
 tbody td.td-desc  { color: var(--ice); }
+.conta-input {
+  background: transparent; border: none; border-bottom: 1px solid var(--rim2);
+  color: var(--ice); font-family: var(--font-ui); font-size: 12px;
+  padding: 2px 4px; width: 100%; min-width: 90px; outline: none;
+  transition: border-color .15s;
+}
+.conta-input:focus { border-bottom-color: var(--neon); background: rgba(61,127,255,.06); }
+.conta-input::placeholder { color: var(--fog); }
+tbody td.td-hp    { color: var(--neon2); font-weight: 600; font-variant-numeric: tabular-nums; }
+tbody td.td-hfp   { color: var(--warm);  font-weight: 600; font-variant-numeric: tabular-nums; }
 .empty-cell { text-align: center; padding: 52px !important; color: var(--fog); font-size: 13px; white-space: normal !important; }
 .empty-icon { font-size: 2rem; display: block; margin-bottom: 8px; opacity: .5; }
 
@@ -286,7 +296,7 @@ tbody td.td-desc  { color: var(--ice); }
 
   <div class="kpi-row">
     <div class="kpi k-blue"><div class="kpi-glow"></div><div class="kpi-top"><span class="kpi-icon">🧾</span></div><div class="kpi-val" id="kpi-notas">0</div><div class="kpi-label">Notas Fiscais</div></div>
-    <div class="kpi k-cyan"><div class="kpi-glow"></div><div class="kpi-top"><span class="kpi-icon">📦</span></div><div class="kpi-val" id="kpi-itens">0</div><div class="kpi-label">Itens</div></div>
+    <div class="kpi k-cyan"><div class="kpi-glow"></div><div class="kpi-top"><span class="kpi-icon">🔢</span></div><div class="kpi-val" id="kpi-itens">0</div><div class="kpi-label">Qtd Total</div></div>
     <div class="kpi k-mint"><div class="kpi-glow"></div><div class="kpi-top"><span class="kpi-icon">💰</span></div><div class="kpi-val" id="kpi-vtotal">—</div><div class="kpi-label">Valor Total NF</div></div>
     <div class="kpi k-warm"><div class="kpi-glow"></div><div class="kpi-top"><span class="kpi-icon">🏪</span></div><div class="kpi-val" id="kpi-lojas">0</div><div class="kpi-label">Lojas únicas</div></div>
     <div class="kpi k-hot" ><div class="kpi-glow"></div><div class="kpi-top"><span class="kpi-icon">🏭</span></div><div class="kpi-val" id="kpi-emit">0</div><div class="kpi-label">Emitentes</div></div>
@@ -294,7 +304,7 @@ tbody td.td-desc  { color: var(--ice); }
 
   <div class="tab-bar">
     <button class="tab-btn active" onclick="switchTab('nf',this)">Base Completa</button>
-    <button class="tab-btn"        onclick="switchTab('itens',this)">Itens</button>
+    <button class="tab-btn"        onclick="switchTab('itens',this)">Consinco</button>
   </div>
 
   <!-- BASE COMPLETA -->
@@ -317,6 +327,8 @@ tbody td.td-desc  { color: var(--ice); }
             <th onclick="sortTable('nf','Nome Emitente')">Emitente</th>
             <th onclick="sortTable('nf','CNPJ Emitente')">CNPJ Emitente</th>
             <th onclick="sortTable('nf','CNPJ/CPF Destinatário')">CNPJ/CPF Dest.</th>
+            <th onclick="sortTable('nf','HP')" title="Horário de Ponta">HP</th>
+            <th onclick="sortTable('nf','HFP')" title="Horário Fora de Ponta">HFP</th>
             <th onclick="sortTable('nf','Quantidade Total')">Qtd Total</th>
             <th onclick="sortTable('nf','V. Total NF')">V. Total NF</th>
           </tr></thead>
@@ -328,7 +340,7 @@ tbody td.td-desc  { color: var(--ice); }
     </div>
   </div>
 
-  <!-- ITENS -->
+  <!-- CONSINCO -->
   <div class="tab-panel" id="tab-itens">
     <div class="table-card">
       <div class="table-toolbar">
@@ -339,20 +351,18 @@ tbody td.td-desc  { color: var(--ice); }
       <div class="table-wrap">
         <table>
           <thead><tr>
-            <th onclick="sortTable('itens','Arquivo')">Arquivo</th>
-            <th onclick="sortTable('itens','Modelo')">Modelo</th>
-            <th onclick="sortTable('itens','Numero NF')">Nº NF</th>
             <th onclick="sortTable('itens','Loja')">Loja</th>
+            <th onclick="sortTable('itens','Nome Emitente')">Empresa</th>
+            <th onclick="sortTable('itens','Numero NF')">NF</th>
             <th onclick="sortTable('itens','Data Emissão')">Emissão</th>
-            <th onclick="sortTable('itens','Descrição')">Descrição</th>
-            <th onclick="sortTable('itens','NCM')">NCM/Classe</th>
-            <th onclick="sortTable('itens','CFOP')">CFOP</th>
-            <th onclick="sortTable('itens','Quantidade')">Qtd</th>
-            <th onclick="sortTable('itens','V. Unitário')">V. Unitário</th>
-            <th onclick="sortTable('itens','V. Total Item')">V. Total</th>
+            <th onclick="sortTable('itens','Vencimento')">Vencimento</th>
+            <th onclick="sortTable('itens','HFP')" title="Horário Fora de Ponta">HFP</th>
+            <th onclick="sortTable('itens','HP')" title="Horário de Ponta">HP</th>
+            <th onclick="sortTable('itens','Quantidade Total')">Total</th>
+            <th onclick="sortTable('itens','V. Total NF')">Total Conta</th>
           </tr></thead>
           <tbody id="tbody-itens">
-            <tr><td colspan="11" class="empty-cell"><span class="empty-icon">📦</span>Nenhum item carregado</td></tr>
+            <tr><td colspan="9" class="empty-cell"><span class="empty-icon">📋</span>Nenhuma nota carregada</td></tr>
           </tbody>
         </table>
       </div>
@@ -403,8 +413,13 @@ async function handleFiles(files) {
       const doc  = new DOMParser().parseFromString(text,'application/xml');
       if (doc.querySelector('parsererror')) { errors++; continue; }
 
-      const chave = file.name;
-      if (dbNF.find(r=>r['Chave']===chave)) { skipped++; continue; }
+      // Chave de acesso: lê o atributo Id de infNFe/infNF3e (44 dígitos) ou tag chNFe
+      const infEl = doc.querySelector('infNFe, infNF3e, infNF3E');
+      let chaveAcesso = infEl ? (infEl.getAttribute('Id')||'').replace(/^NFe|^NF3e/i,'') : '';
+      if (!chaveAcesso) chaveAcesso = g('chNFe') || g('chNF3e') || '';
+      if (!chaveAcesso) chaveAcesso = file.name; // fallback
+      const chave = file.name; // mantém nome do arquivo para exibição
+      if (dbNF.find(r=>r['ChaveAcesso']===chaveAcesso)) { skipped++; continue; } // duplicata por chave de acesso
 
       const g = sel => { const el=doc.querySelector(sel); return el?el.textContent.trim():null; };
 
@@ -448,32 +463,70 @@ async function handleFiles(files) {
         ? doc.querySelectorAll('NFdet > det')
         : doc.querySelectorAll('det');
 
-      let qtdTotal=0;
+      let qtdTotal=0, qtdHP=0, qtdHFP=0;
       for (const det of detNodes) {
         const gd  = tag => { const el=det.querySelector(tag); return el?el.textContent.trim():null; };
-        // NF3-e usa qFaturada; NF-e usa qCom
-        const qtd  = parseFloat((isNF3 ? gd('qFaturada') : gd('qCom'))  || '0');
-        // NF3-e usa vItem como unitário; NF-e usa vUnCom
-        const vUni = parseFloat((isNF3 ? gd('vItem')     : gd('vUnCom')) || '0');
-        const vPrd = parseFloat(gd('vProd') || '0');
-        qtdTotal += qtd;
-        dbItens.push({
-          'Arquivo':       chave,
-          'Modelo':        modelo,
-          'Numero NF':     numeroNF,
-          'Loja':          loja,
-          'Data Emissão':  dataEmissao,
-          'Descrição':     gd('xProd'),
-          'NCM':           gd('NCM') || gd('cClass'),   // NF3-e usa cClass
-          'CFOP':          gd('CFOP'),
-          'Quantidade':    qtd,
-          'V. Unitário':   vUni,
-          'V. Total Item': vPrd
-        });
+
+        if (isNF3) {
+          const xProd  = (gd('xProd') || '').toUpperCase();
+          const qtdFat = parseFloat(gd('qFaturada') || '0');
+          const vUni   = parseFloat(gd('vItem')  || '0');
+          const vPrd   = parseFloat(gd('vProd')  || '0');
+
+          // Detecta posto tarifário pela descrição do item
+          // Ex: "Componente Encargo HFP kWh" ou "Componente Encargo HP kWh"
+          const isHFP = /\bHFP\b/.test(xProd);
+          const isHP  = !isHFP && /\bHP\b/.test(xProd);
+
+          let itemHP=0, itemHFP=0;
+          if      (isHP)  itemHP  = qtdFat;
+          else if (isHFP) itemHFP = qtdFat;
+
+          qtdHP    += itemHP;
+          qtdHFP   += itemHFP;
+          qtdTotal += qtdFat;
+          dbItens.push({
+            'Arquivo':       chave,
+            'Modelo':        modelo,
+            'Numero NF':     numeroNF,
+            'Loja':          loja,
+            'Data Emissão':  dataEmissao,
+            'Descrição':     gd('xProd'),
+            'NCM':           gd('cClass') || gd('NCM'),
+            'CFOP':          gd('CFOP'),
+            'HP':            itemHP   || null,
+            'HFP':           itemHFP  || null,
+            'Quantidade':    qtdFat,
+            'V. Unitário':   vUni,
+            'V. Total Item': vPrd
+          });
+        } else {
+          // NF-e padrão
+          const qtd  = parseFloat(gd('qCom')   || '0');
+          const vUni = parseFloat(gd('vUnCom')  || '0');
+          const vPrd = parseFloat(gd('vProd')   || '0');
+          qtdTotal += qtd;
+          dbItens.push({
+            'Arquivo':       chave,
+            'Modelo':        modelo,
+            'Numero NF':     numeroNF,
+            'Loja':          loja,
+            'Data Emissão':  dataEmissao,
+            'Descrição':     gd('xProd'),
+            'NCM':           gd('NCM'),
+            'CFOP':          gd('CFOP'),
+            'HP':            null,
+            'HFP':           null,
+            'Quantidade':    qtd,
+            'V. Unitário':   vUni,
+            'V. Total Item': vPrd
+          });
+        }
       }
 
       dbNF.push({
         'Chave':                 chave,
+        'ChaveAcesso':           chaveAcesso,
         'Arquivo':               chave,
         'Modelo':                modelo,
         'Loja':                  loja,
@@ -483,6 +536,8 @@ async function handleFiles(files) {
         'CNPJ Emitente':         cnpjEmit,
         'Nome Emitente':         nomeEmit,
         'CNPJ/CPF Destinatário': cnpjCpfDest,
+        'HP':                    modelo==='NF3-e' ? qtdHP  : null,
+        'HFP':                   modelo==='NF3-e' ? qtdHFP : null,
         'Quantidade Total':      qtdTotal,
         'V. Total NF':           totalNF
       });
@@ -522,7 +577,8 @@ function updateKPIs() {
   const lojas=new Set(dbNF.map(r=>r['Loja']).filter(Boolean)).size;
   const emits=new Set(dbNF.map(r=>r['CNPJ Emitente']).filter(Boolean)).size;
   document.getElementById('kpi-notas').textContent  = dbNF.length.toLocaleString('pt-BR');
-  document.getElementById('kpi-itens').textContent  = dbItens.length.toLocaleString('pt-BR');
+  const qtdTot=dbNF.reduce((s,r)=>s+(r['Quantidade Total']||0),0);
+  document.getElementById('kpi-itens').textContent  = qtdTot.toLocaleString('pt-BR',{maximumFractionDigits:0});
   document.getElementById('kpi-vtotal').textContent = fmtBRL(total);
   document.getElementById('kpi-lojas').textContent  = lojas;
   document.getElementById('kpi-emit').textContent   = emits;
@@ -552,8 +608,8 @@ function sortedData(data,which) {
   });
 }
 
-const NF_COLS  =['Modelo','Arquivo','Loja','Numero NF','Data Emissão','Vencimento','Nome Emitente','CNPJ Emitente','CNPJ/CPF Destinatário','Quantidade Total','V. Total NF'];
-const IT_COLS  =['Modelo','Numero NF','Loja','Data Emissão','Descrição','NCM','CFOP','Quantidade','V. Unitário','V. Total Item'];
+const NF_COLS  =['Modelo','Arquivo','Loja','Numero NF','Data Emissão','Vencimento','Nome Emitente','CNPJ Emitente','CNPJ/CPF Destinatário','HP','HFP','Quantidade Total','V. Total NF'];
+const IT_COLS  =['Loja','Nome Emitente','Numero NF','Data Emissão','Vencimento','HFP','HP','Quantidade Total','V. Total NF'];
 
 // badge de modelo
 function modeloBadge(m) {
@@ -572,7 +628,7 @@ function renderNF() {
     if(sortState.nf.col===NF_COLS[i]) th.classList.add(sortState.nf.dir===1?'sort-asc':'sort-desc');
   });
   const tbody=document.getElementById('tbody-nf');
-  if(!rows.length){tbody.innerHTML=`<tr><td colspan="11" class="empty-cell"><span class="empty-icon">🧾</span>Nenhuma nota carregada</td></tr>`;return;}
+  if(!rows.length){tbody.innerHTML=`<tr><td colspan="13" class="empty-cell"><span class="empty-icon">🧾</span>Nenhuma nota carregada</td></tr>`;return;}
   tbody.innerHTML=rows.map(r=>`<tr>
     <td>${modeloBadge(r['Modelo'])}</td>
     <td class="td-code" title="${r['Arquivo']}">${trunc(r['Arquivo'],22)}</td>
@@ -583,6 +639,8 @@ function renderNF() {
     <td class="td-desc" title="${r['Nome Emitente']||''}">${trunc(r['Nome Emitente'],22)}</td>
     <td class="td-cnpj">${fmtCNPJ(r['CNPJ Emitente'])}</td>
     <td class="td-cnpj">${fmtCNPJ(r['CNPJ/CPF Destinatário'])}</td>
+    <td class="td-num td-hp">${r['HP']!=null?fmtNum(r['HP'],0):'—'}</td>
+    <td class="td-num td-hfp">${r['HFP']!=null?fmtNum(r['HFP'],0):'—'}</td>
     <td class="td-num">${fmtNum(r['Quantidade Total'],0)}</td>
     <td class="td-num">${fmtBRL(r['V. Total NF'])}</td>
   </tr>`).join('');
@@ -590,7 +648,8 @@ function renderNF() {
 
 function renderItens() {
   const q=document.getElementById('search-itens').value.toLowerCase();
-  let rows=sortedData(dbItens,'itens');
+  // Consinco usa os dados de dbNF (somente NF3-e faz sentido, mas exibe tudo)
+  let rows=sortedData(dbNF,'itens');
   if(q) rows=rows.filter(r=>Object.values(r).some(v=>String(v).toLowerCase().includes(q)));
   document.getElementById('count-itens').textContent=`${rows.length} registros`;
   document.querySelectorAll('#tab-itens thead th').forEach((th,i)=>{
@@ -598,18 +657,17 @@ function renderItens() {
     if(sortState.itens.col===IT_COLS[i]) th.classList.add(sortState.itens.dir===1?'sort-asc':'sort-desc');
   });
   const tbody=document.getElementById('tbody-itens');
-  if(!rows.length){tbody.innerHTML=`<tr><td colspan="11" class="empty-cell"><span class="empty-icon">📦</span>Nenhum item carregado</td></tr>`;return;}
-  tbody.innerHTML=rows.map(r=>`<tr>
-    <td>${modeloBadge(r['Modelo'])}</td>
-    <td class="td-code">${r['Numero NF']??'—'}</td>
+  if(!rows.length){tbody.innerHTML=`<tr><td colspan="9" class="empty-cell"><span class="empty-icon">📋</span>Nenhuma nota carregada</td></tr>`;return;}
+  tbody.innerHTML=rows.map((r,i)=>`<tr>
     <td class="td-loja">${r['Loja']??'—'}</td>
+    <td class="td-desc" title="${r['Nome Emitente']||''}">${trunc(r['Nome Emitente'],26)}</td>
+    <td class="td-code">${r['Numero NF']??'—'}</td>
     <td class="td-date">${fmtDate(r['Data Emissão'])}</td>
-    <td class="td-desc" title="${r['Descrição']||''}">${trunc(r['Descrição'],34)}</td>
-    <td class="td-cnpj">${r['NCM']??'—'}</td>
-    <td class="td-cnpj">${r['CFOP']??'—'}</td>
-    <td class="td-num">${fmtNum(r['Quantidade'],3)}</td>
-    <td class="td-num">${fmtBRL(r['V. Unitário'])}</td>
-    <td class="td-num">${fmtBRL(r['V. Total Item'])}</td>
+    <td class="td-date">${fmtDate(r['Vencimento'])}</td>
+    <td class="td-num td-hfp">${r['HFP']!=null?fmtNum(r['HFP'],0):'—'}</td>
+    <td class="td-num td-hp">${r['HP']!=null?fmtNum(r['HP'],0):'—'}</td>
+    <td class="td-num">${fmtNum(r['Quantidade Total'],0)}</td>
+    <td class="td-num">${fmtBRL(r['V. Total NF'])}</td>
   </tr>`).join('');
 }
 
@@ -624,8 +682,10 @@ function exportarXlsx() {
   setStatus('Exportado com sucesso.','ok');
 }
 function exportarAba(which) {
-  const data=which==='nf'?dbNF.map(r=>({...r,Chave:undefined})):dbItens;
-  const sheet=which==='nf'?'Base Completa':'Itens';
+  const data=which==='nf'
+    ? dbNF.map(r=>({...r,Chave:undefined}))
+    : dbNF.map(r=>({'Loja':r['Loja'],'Empresa':r['Nome Emitente'],'NF':r['Numero NF'],'Emissão':r['Data Emissão'],'Vencimento':r['Vencimento'],'HFP':r['HFP'],'HP':r['HP'],'Total':r['Quantidade Total'],'Total Conta':r['V. Total NF']}));
+  const sheet=which==='nf'?'Base Completa':'Consinco';
   if(!data.length){setStatus('Nada para exportar.','err');return;}
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(data),sheet);
