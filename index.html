@@ -233,6 +233,59 @@ tbody td.td-hfp   { color: var(--warm);  font-weight: 600; font-variant-numeric:
 .empty-cell { text-align: center; padding: 52px !important; color: var(--fog); font-size: 13px; white-space: normal !important; }
 .empty-icon { font-size: 2rem; display: block; margin-bottom: 8px; opacity: .5; }
 
+/* ─── MODAL GÁS ─── */
+.modal-overlay {
+  display: none; position: fixed; inset: 0; z-index: 500;
+  background: rgba(5,7,15,.85); backdrop-filter: blur(8px);
+  align-items: center; justify-content: center;
+}
+.modal-overlay.show { display: flex; }
+.modal-box {
+  background: var(--panel); border: 1px solid var(--rim2); border-radius: 14px;
+  padding: 28px; width: 100%; max-width: 520px;
+  box-shadow: 0 32px 80px rgba(0,0,0,.8);
+  max-height: 85vh; display: flex; flex-direction: column;
+}
+.modal-title {
+  font-family: var(--font-display); font-size: 22px; letter-spacing: 1.5px;
+  color: var(--warm); margin-bottom: 4px;
+}
+.modal-sub { font-size: 11px; color: var(--fog); margin-bottom: 18px; letter-spacing: .4px; text-transform: uppercase; }
+.modal-textarea {
+  width: 100%; min-height: 160px; max-height: 260px;
+  background: var(--panel2); border: 1px solid var(--rim); color: var(--ice);
+  border-radius: 8px; padding: 12px 14px; font-family: 'Courier New', monospace;
+  font-size: 12px; outline: none; resize: vertical; transition: border-color .2s;
+}
+.modal-textarea:focus { border-color: var(--warm); }
+.modal-textarea::placeholder { color: var(--fog); font-family: var(--font-ui); }
+.modal-info {
+  font-size: 11px; color: var(--fog); margin-top: 10px; margin-bottom: 16px;
+  display: flex; justify-content: space-between; align-items: center;
+}
+.modal-info b { color: var(--warm); font-weight: 600; }
+.modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
+.modal-btn {
+  font-family: var(--font-ui); font-size: 12px; font-weight: 600;
+  padding: 9px 18px; border-radius: 7px; border: 1px solid var(--rim2);
+  background: transparent; color: var(--mist); cursor: pointer;
+  transition: all .15s; text-transform: uppercase; letter-spacing: .5px;
+}
+.modal-btn:hover { border-color: var(--mist); color: var(--ice); }
+.modal-btn.primary {
+  background: linear-gradient(135deg, var(--warm), #ff8c42);
+  border-color: transparent; color: #1a0e00;
+}
+.modal-btn.primary:hover { box-shadow: 0 4px 20px rgba(255,179,71,.4); color: #1a0e00; }
+.modal-btn.danger { color: var(--hot); border-color: rgba(255,75,110,.3); }
+.modal-btn.danger:hover { border-color: var(--hot); color: var(--hot); }
+
+/* ─── TABELAS: dados e cabeçalhos centralizados ─── */
+.table-card table thead th,
+.table-card table tbody td { text-align: center !important; }
+.table-card table tbody td.td-num { text-align: center !important; }
+.table-card table tbody td.td-desc { text-align: center !important; }
+
 /* ─── LOADER ─── */
 #loader {
   display: none; position: fixed; inset: 0; z-index: 999;
@@ -265,6 +318,25 @@ tbody td.td-hfp   { color: var(--warm);  font-weight: 600; font-variant-numeric:
 
 <div id="loader"><div class="spinner"></div><div class="loader-txt">Processando XMLs…</div></div>
 
+<!-- MODAL CADASTRO DE CNPJs GÁS -->
+<div class="modal-overlay" id="modal-gas">
+  <div class="modal-box">
+    <div class="modal-title">⛽ CNPJs Fornecedores de Gás</div>
+    <div class="modal-sub">Cole um CNPJ por linha · aceita com ou sem formatação</div>
+    <textarea class="modal-textarea" id="gas-cnpjs-input"
+      placeholder="Ex:&#10;12.345.678/0001-90&#10;98765432000155&#10;11.222.333/0001-44"></textarea>
+    <div class="modal-info">
+      <span><b id="gas-count">0</b> CNPJ(s) válido(s) será(ão) cadastrado(s)</span>
+      <span style="font-size:10px;">Vale somente para esta sessão</span>
+    </div>
+    <div class="modal-actions">
+      <button class="modal-btn danger" onclick="limparCnpjsGas()">Limpar todos</button>
+      <button class="modal-btn" onclick="fecharModalGas()">Cancelar</button>
+      <button class="modal-btn primary" onclick="salvarCnpjsGas()">Salvar</button>
+    </div>
+  </div>
+</div>
+
 <div class="topbar">
   <div class="topbar-left">
     <div class="brand">EXTRACT NF-e</div>
@@ -277,6 +349,7 @@ tbody td.td-hfp   { color: var(--warm);  font-weight: 600; font-variant-numeric:
     <input type="file" id="xlsx-import-input" accept=".xlsx" onchange="handleXlsxImport(this)">
     <button class="upload-btn green" onclick="document.getElementById('xlsx-import-input').click()">⬆ Importar histórico</button>
     <button class="upload-btn"       onclick="exportarXlsx()">⬇ Exportar .xlsx</button>
+    <button class="upload-btn ghost" onclick="abrirModalGas()" style="color:var(--warm);border-color:rgba(255,179,71,.35);">⛽ CNPJS</button>
     <button class="upload-btn ghost" onclick="limparTudo()">✕ Limpar</button>
   </div>
 </div>
@@ -305,6 +378,7 @@ tbody td.td-hfp   { color: var(--warm);  font-weight: 600; font-variant-numeric:
   <div class="tab-bar">
     <button class="tab-btn active" onclick="switchTab('nf',this)">Base Completa</button>
     <button class="tab-btn"        onclick="switchTab('itens',this)">Consinco</button>
+    <button class="tab-btn"        onclick="switchTab('gas',this)" style="color:var(--warm);">⛽ Gás</button>
   </div>
 
   <!-- BASE COMPLETA -->
@@ -369,6 +443,36 @@ tbody td.td-hfp   { color: var(--warm);  font-weight: 600; font-variant-numeric:
     </div>
   </div>
 
+  <!-- GÁS -->
+  <div class="tab-panel" id="tab-gas">
+    <div class="table-card">
+      <div class="table-toolbar">
+        <input class="tbl-search" id="search-gas" placeholder="Filtrar…" oninput="renderGas()">
+        <span class="record-count" id="count-gas">0 registros</span>
+        <span id="gas-cadastro-info" style="font-size:11px;color:var(--fog);">Nenhum CNPJ cadastrado</span>
+        <button class="btn-sm" onclick="abrirModalGas()" style="border-color:rgba(255,179,71,.35);color:var(--warm);">⛽ cadastrar CNPJs</button>
+        <button class="btn-sm" onclick="exportarAba('gas')">⬇ exportar aba</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th onclick="sortTable('gas','Loja')">Loja</th>
+            <th onclick="sortTable('gas','Nome Emitente')">Empresa</th>
+            <th onclick="sortTable('gas','CNPJ Emitente')">CNPJ</th>
+            <th onclick="sortTable('gas','Numero NF')">NF</th>
+            <th onclick="sortTable('gas','Data Emissão')">Emissão</th>
+            <th onclick="sortTable('gas','Vencimento')">Vencimento</th>
+            <th onclick="sortTable('gas','Quantidade Total')">Quantidade</th>
+            <th onclick="sortTable('gas','V. Total NF')">V. Total NF</th>
+          </tr></thead>
+          <tbody id="tbody-gas">
+            <tr><td colspan="8" class="empty-cell"><span class="empty-icon">⛽</span>Cadastre os CNPJs de fornecedores de gás para ver as notas aqui</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
 </div>
 
 <script>
@@ -393,7 +497,8 @@ function doLogin() {
 
 let dbNF    = [];
 let dbItens = [];
-let sortState = { nf:{col:null,dir:1}, itens:{col:null,dir:1} };
+let cnpjsGas = new Set(); // CNPJs de fornecedores de gás cadastrados (apenas dígitos, só na sessão)
+let sortState = { nf:{col:null,dir:1}, itens:{col:null,dir:1}, gas:{col:null,dir:1} };
 
 function dragOver(e)  { e.preventDefault(); e.currentTarget.classList.add('drag-over'); }
 function dragLeave(e) { e.currentTarget.classList.remove('drag-over'); }
@@ -671,7 +776,127 @@ function renderItens() {
   </tr>`).join('');
 }
 
-function refresh() { updateKPIs(); renderNF(); renderItens(); }
+function refresh() { updateKPIs(); renderNF(); renderItens(); renderGas(); }
+
+// ═══════════════════════════════════════════════════════════
+// ── ABA GÁS: cadastro e filtro de CNPJs de fornecedores ──
+// ═══════════════════════════════════════════════════════════
+
+// remove pontos, barras, traços, espaços — deixa só dígitos
+function soDigitos(v) { return String(v||'').replace(/\D/g,''); }
+
+function abrirModalGas() {
+  // preenche textarea com os CNPJs já cadastrados (formatados)
+  const txt = [...cnpjsGas].map(c => fmtCNPJ(c)).join('\n');
+  document.getElementById('gas-cnpjs-input').value = txt;
+  atualizarContadorModal();
+  document.getElementById('modal-gas').classList.add('show');
+}
+function fecharModalGas() {
+  document.getElementById('modal-gas').classList.remove('show');
+}
+
+function parseCnpjsInput() {
+  const raw = document.getElementById('gas-cnpjs-input').value;
+  const linhas = raw.split(/[\n,;]+/); // aceita quebra de linha, vírgula ou ponto-e-vírgula
+  const validos = new Set();
+  for (const l of linhas) {
+    const d = soDigitos(l);
+    if (d.length === 14) validos.add(d); // CNPJ tem 14 dígitos
+  }
+  return validos;
+}
+
+function atualizarContadorModal() {
+  const n = parseCnpjsInput().size;
+  document.getElementById('gas-count').textContent = n;
+}
+
+function salvarCnpjsGas() {
+  cnpjsGas = parseCnpjsInput();
+  atualizarInfoCadastro();
+  fecharModalGas();
+  const n = cnpjsGas.size;
+  if (n) setStatus(`${n} CNPJ(s) de gás cadastrado(s) nesta sessão.`, 'ok');
+  else   setStatus('Cadastro de CNPJs de gás vazio.');
+  refresh();
+}
+
+function limparCnpjsGas() {
+  if (!cnpjsGas.size && !document.getElementById('gas-cnpjs-input').value.trim()) return;
+  if (confirm('Remover todos os CNPJs cadastrados?')) {
+    document.getElementById('gas-cnpjs-input').value = '';
+    cnpjsGas = new Set();
+    atualizarContadorModal();
+    atualizarInfoCadastro();
+    refresh();
+  }
+}
+
+function atualizarInfoCadastro() {
+  const el = document.getElementById('gas-cadastro-info');
+  if (!el) return;
+  if (cnpjsGas.size) {
+    el.innerHTML = `<span style="color:var(--warm);">⛽ ${cnpjsGas.size} CNPJ(s) cadastrado(s)</span>`;
+  } else {
+    el.textContent = 'Nenhum CNPJ cadastrado';
+  }
+}
+
+const GAS_COLS = ['Loja','Nome Emitente','CNPJ Emitente','Numero NF','Data Emissão','Vencimento','Quantidade Total','V. Total NF'];
+
+function renderGas() {
+  const tbody = document.getElementById('tbody-gas');
+  if (!tbody) return;
+
+  // se não há CNPJs cadastrados, mostra mensagem orientativa
+  if (!cnpjsGas.size) {
+    document.getElementById('count-gas').textContent = '0 registros';
+    tbody.innerHTML = `<tr><td colspan="8" class="empty-cell"><span class="empty-icon">⛽</span>Cadastre os CNPJs de fornecedores de gás para ver as notas aqui<br><button class="btn-sm" style="margin-top:14px;border-color:rgba(255,179,71,.35);color:var(--warm);" onclick="abrirModalGas()">⛽ Cadastrar agora</button></td></tr>`;
+    return;
+  }
+
+  // filtra notas cujos CNPJs emitentes estão cadastrados
+  let rows = dbNF.filter(r => cnpjsGas.has(soDigitos(r['CNPJ Emitente'])));
+
+  // busca textual
+  const q = document.getElementById('search-gas').value.toLowerCase();
+  if (q) rows = rows.filter(r => Object.values(r).some(v => String(v).toLowerCase().includes(q)));
+
+  // ordenação
+  rows = sortedData(rows, 'gas');
+
+  document.getElementById('count-gas').textContent = `${rows.length} registros`;
+  document.querySelectorAll('#tab-gas thead th').forEach((th,i) => {
+    th.classList.remove('sort-asc','sort-desc');
+    if (sortState.gas.col === GAS_COLS[i]) th.classList.add(sortState.gas.dir === 1 ? 'sort-asc' : 'sort-desc');
+  });
+
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="8" class="empty-cell"><span class="empty-icon">⛽</span>Nenhuma nota encontrada para os CNPJs cadastrados<br><span style="font-size:11px;">Suba XMLs ou confira os CNPJs cadastrados</span></td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = rows.map(r => `<tr>
+    <td class="td-loja">${r['Loja']??'—'}</td>
+    <td class="td-desc" title="${r['Nome Emitente']||''}">${trunc(r['Nome Emitente'],28)}</td>
+    <td class="td-cnpj">${fmtCNPJ(r['CNPJ Emitente'])}</td>
+    <td class="td-code">${r['Numero NF']??'—'}</td>
+    <td class="td-date">${fmtDate(r['Data Emissão'])}</td>
+    <td class="td-date">${fmtDate(r['Vencimento'])}</td>
+    <td class="td-num">${fmtNum(r['Quantidade Total'],0)}</td>
+    <td class="td-num">${fmtBRL(r['V. Total NF'])}</td>
+  </tr>`).join('');
+}
+
+// listener para atualizar contador em tempo real no modal
+document.addEventListener('DOMContentLoaded', () => {
+  const ta = document.getElementById('gas-cnpjs-input');
+  if (ta) ta.addEventListener('input', atualizarContadorModal);
+  // fecha modal ao clicar fora
+  const overlay = document.getElementById('modal-gas');
+  if (overlay) overlay.addEventListener('click', e => { if (e.target === overlay) fecharModalGas(); });
+});
 
 function exportarXlsx() {
   if(!dbNF.length){setStatus('Nada para exportar.','err');return;}
@@ -682,14 +907,32 @@ function exportarXlsx() {
   setStatus('Exportado com sucesso.','ok');
 }
 function exportarAba(which) {
-  const data=which==='nf'
-    ? dbNF.map(r=>({...r,Chave:undefined}))
-    : dbNF.map(r=>({'Loja':r['Loja'],'Empresa':r['Nome Emitente'],'NF':r['Numero NF'],'Emissão':r['Data Emissão'],'Vencimento':r['Vencimento'],'HFP':r['HFP'],'HP':r['HP'],'Total':r['Quantidade Total'],'Total Conta':r['V. Total NF']}));
-  const sheet=which==='nf'?'Base Completa':'Consinco';
-  if(!data.length){setStatus('Nada para exportar.','err');return;}
-  const wb=XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(data),sheet);
-  XLSX.writeFile(wb,`notas_${sheet.toLowerCase().replace(' ','_')}.xlsx`);
+  let data, sheet;
+  if (which === 'nf') {
+    data = dbNF.map(r => ({...r, Chave: undefined}));
+    sheet = 'Base Completa';
+  } else if (which === 'itens') {
+    data = dbNF.map(r => ({'Loja':r['Loja'],'Empresa':r['Nome Emitente'],'NF':r['Numero NF'],'Emissão':r['Data Emissão'],'Vencimento':r['Vencimento'],'HFP':r['HFP'],'HP':r['HP'],'Total':r['Quantidade Total'],'Total Conta':r['V. Total NF']}));
+    sheet = 'Consinco';
+  } else if (which === 'gas') {
+    if (!cnpjsGas.size) { setStatus('Cadastre os CNPJs de gás antes de exportar.','err'); return; }
+    const filtradas = dbNF.filter(r => cnpjsGas.has(soDigitos(r['CNPJ Emitente'])));
+    data = filtradas.map(r => ({
+      'Loja':          r['Loja'],
+      'Empresa':       r['Nome Emitente'],
+      'CNPJ':          fmtCNPJ(r['CNPJ Emitente']),
+      'NF':            r['Numero NF'],
+      'Emissão':       r['Data Emissão'],
+      'Vencimento':    r['Vencimento'],
+      'Quantidade':    r['Quantidade Total'],
+      'V. Total NF':   r['V. Total NF']
+    }));
+    sheet = 'Gás';
+  }
+  if (!data || !data.length) { setStatus('Nada para exportar.','err'); return; }
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data), sheet);
+  XLSX.writeFile(wb, `notas_${sheet.toLowerCase().replace(/[\s·ç]/g,'_').replace('á','a')}.xlsx`);
 }
 
 function handleXlsxImport(input) {
