@@ -349,7 +349,6 @@ tbody td.td-hfp   { color: var(--warm);  font-weight: 600; font-variant-numeric:
     <input type="file" id="xlsx-import-input" accept=".xlsx" onchange="handleXlsxImport(this)">
     <button class="upload-btn green" onclick="document.getElementById('xlsx-import-input').click()">⬆ Importar histórico</button>
     <button class="upload-btn"       onclick="exportarXlsx()">⬇ Exportar .xlsx</button>
-    <button class="upload-btn ghost" onclick="abrirModalGas()" style="color:var(--warm);border-color:rgba(255,179,71,.35);">⛽ CNPJS</button>
     <button class="upload-btn ghost" onclick="limparTudo()">✕ Limpar</button>
   </div>
 </div>
@@ -378,6 +377,7 @@ tbody td.td-hfp   { color: var(--warm);  font-weight: 600; font-variant-numeric:
   <div class="tab-bar">
     <button class="tab-btn active" onclick="switchTab('nf',this)">Base Completa</button>
     <button class="tab-btn"        onclick="switchTab('itens',this)">Consinco</button>
+    <button class="tab-btn"        onclick="switchTab('energia',this)">⚡ Energia</button>
     <button class="tab-btn"        onclick="switchTab('gas',this)" style="color:var(--warm);">⛽ Gás</button>
   </div>
 
@@ -430,13 +430,41 @@ tbody td.td-hfp   { color: var(--warm);  font-weight: 600; font-variant-numeric:
             <th onclick="sortTable('itens','Numero NF')">NF</th>
             <th onclick="sortTable('itens','Data Emissão')">Emissão</th>
             <th onclick="sortTable('itens','Vencimento')">Vencimento</th>
-            <th onclick="sortTable('itens','HFP')" title="Horário Fora de Ponta">HFP</th>
-            <th onclick="sortTable('itens','HP')" title="Horário de Ponta">HP</th>
             <th onclick="sortTable('itens','Quantidade Total')">Total</th>
             <th onclick="sortTable('itens','V. Total NF')">Total Conta</th>
           </tr></thead>
           <tbody id="tbody-itens">
-            <tr><td colspan="9" class="empty-cell"><span class="empty-icon">📋</span>Nenhuma nota carregada</td></tr>
+            <tr><td colspan="7" class="empty-cell"><span class="empty-icon">📋</span>Nenhuma nota carregada</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ENERGIA -->
+  <div class="tab-panel" id="tab-energia">
+    <div class="table-card">
+      <div class="table-toolbar">
+        <input class="tbl-search" id="search-energia" placeholder="Filtrar…" oninput="renderEnergia()">
+        <span class="record-count" id="count-energia">0 registros</span>
+        <button class="btn-sm" onclick="exportarAba('energia')">⬇ exportar aba</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th onclick="sortTable('energia','Loja')">Loja</th>
+            <th onclick="sortTable('energia','Nome Emitente')">Empresa</th>
+            <th onclick="sortTable('energia','CNPJ Emitente')">CNPJ</th>
+            <th onclick="sortTable('energia','Numero NF')">NF</th>
+            <th onclick="sortTable('energia','Data Emissão')">Emissão</th>
+            <th onclick="sortTable('energia','Vencimento')">Vencimento</th>
+            <th onclick="sortTable('energia','HFP')" title="Horário Fora de Ponta">HFP</th>
+            <th onclick="sortTable('energia','HP')" title="Horário de Ponta">HP</th>
+            <th onclick="sortTable('energia','Quantidade Total')">Total</th>
+            <th onclick="sortTable('energia','V. Total NF')">Total Conta</th>
+          </tr></thead>
+          <tbody id="tbody-energia">
+            <tr><td colspan="10" class="empty-cell"><span class="empty-icon">⚡</span>Nenhuma nota carregada</td></tr>
           </tbody>
         </table>
       </div>
@@ -449,8 +477,6 @@ tbody td.td-hfp   { color: var(--warm);  font-weight: 600; font-variant-numeric:
       <div class="table-toolbar">
         <input class="tbl-search" id="search-gas" placeholder="Filtrar…" oninput="renderGas()">
         <span class="record-count" id="count-gas">0 registros</span>
-        <span id="gas-cadastro-info" style="font-size:11px;color:var(--fog);">Nenhum CNPJ cadastrado</span>
-        <button class="btn-sm" onclick="abrirModalGas()" style="border-color:rgba(255,179,71,.35);color:var(--warm);">⛽ cadastrar CNPJs</button>
         <button class="btn-sm" onclick="exportarAba('gas')">⬇ exportar aba</button>
       </div>
       <div class="table-wrap">
@@ -497,8 +523,48 @@ function doLogin() {
 
 let dbNF    = [];
 let dbItens = [];
-let cnpjsGas = new Set(); // CNPJs de fornecedores de gás cadastrados (apenas dígitos, só na sessão)
-let sortState = { nf:{col:null,dir:1}, itens:{col:null,dir:1}, gas:{col:null,dir:1} };
+
+// CNPJs de fornecedores de gás — pré-cadastrados (58 CNPJs extraídos da base PESSOA_GAS)
+const CNPJS_GAS_PRE_CADASTRADOS = [
+  '00683101000104', '00706474000153',
+  '00914529000110', '01876795000169',
+  '03067327000179', '03237583003930',
+  '03237583007927', '03237583009466',
+  '03660219000105', '04622945000104',
+  '05553392000300', '05821578000394',
+  '05917475000160', '05984378000190',
+  '06092767000174', '06107909000120',
+  '06980064000425', '06980064001588',
+  '06980064008833', '06980064015295',
+  '06980064017581', '06980286000103',
+  '07323848000109', '07396679000128',
+  '09039582000194', '09294382000188',
+  '09415526000107', '10435471000186',
+  '11646578000136', '12141737000103',
+  '12292960000151', '13105052000175',
+  '15527551000185', '19348710000135',
+  '19791896000100', '19791896000526',
+  '19791896006486', '19791896006990',
+  '19791896008934', '19791896011307',
+  '19791896012885', '19791896014071',
+  '20157038000180', '20157038000341',
+  '29112370000100', '33573370000177',
+  '37351011001602', '41760380000140',
+  '42984989000165', '55987223000186',
+  '60886413006692', '60886413012234',
+  '60886413013397', '61602199026006',
+  '61602199027665', '61602199028475',
+  '68539584000101', '71118939000101'
+];
+let cnpjsGas = new Set(CNPJS_GAS_PRE_CADASTRADOS); // já vem populado com a base pré-cadastrada
+
+// CNPJs de fornecedores de energia — pré-cadastrados
+const CNPJS_ENERGIA_PRE_CADASTRADOS = [
+  '06981180000116', // CEMIG DISTRIBUICAO S.A
+  '30248458000125'  // ENEL TRADING BRASIL S.A
+];
+let cnpjsEnergia = new Set(CNPJS_ENERGIA_PRE_CADASTRADOS);
+let sortState = { nf:{col:null,dir:1}, itens:{col:null,dir:1}, energia:{col:null,dir:1}, gas:{col:null,dir:1} };
 
 function dragOver(e)  { e.preventDefault(); e.currentTarget.classList.add('drag-over'); }
 function dragLeave(e) { e.currentTarget.classList.remove('drag-over'); }
@@ -677,12 +743,19 @@ function setStatus(html,type='') {
   el.innerHTML=type==='ok'?`<span class="ok">✓ ${html}</span>`:html;
 }
 
+let abaAtiva = 'nf'; // 'nf' | 'itens' | 'energia' | 'gas'
+
 function updateKPIs() {
-  const total=dbNF.reduce((s,r)=>s+(r['V. Total NF']||0),0);
-  const lojas=new Set(dbNF.map(r=>r['Loja']).filter(Boolean)).size;
-  const emits=new Set(dbNF.map(r=>r['CNPJ Emitente']).filter(Boolean)).size;
-  document.getElementById('kpi-notas').textContent  = dbNF.length.toLocaleString('pt-BR');
-  const qtdTot=dbNF.reduce((s,r)=>s+(r['Quantidade Total']||0),0);
+  // KPIs reagem conforme a aba ativa
+  let base;
+  if      (abaAtiva === 'gas')     base = dbNF.filter(r => cnpjsGas.has(soDigitos(r['CNPJ Emitente'])));
+  else if (abaAtiva === 'energia') base = dbNF.filter(r => cnpjsEnergia.has(soDigitos(r['CNPJ Emitente'])));
+  else                             base = dbNF;
+  const total=base.reduce((s,r)=>s+(r['V. Total NF']||0),0);
+  const lojas=new Set(base.map(r=>r['Loja']).filter(Boolean)).size;
+  const emits=new Set(base.map(r=>r['CNPJ Emitente']).filter(Boolean)).size;
+  document.getElementById('kpi-notas').textContent  = base.length.toLocaleString('pt-BR');
+  const qtdTot=base.reduce((s,r)=>s+(r['Quantidade Total']||0),0);
   document.getElementById('kpi-itens').textContent  = qtdTot.toLocaleString('pt-BR',{maximumFractionDigits:0});
   document.getElementById('kpi-vtotal').textContent = fmtBRL(total);
   document.getElementById('kpi-lojas').textContent  = lojas;
@@ -694,15 +767,20 @@ function updateKPIs() {
 }
 
 function switchTab(tab,btn) {
+  abaAtiva = tab;
   document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
   btn.classList.add('active');
   document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
   document.getElementById('tab-'+tab).classList.add('active');
+  updateKPIs(); // recalcula os cards ao trocar de aba
 }
 
 function sortTable(which,col) {
   const s=sortState[which]; s.dir=s.col===col?-s.dir:1; s.col=col;
-  which==='nf'?renderNF():renderItens();
+  if      (which==='nf')      renderNF();
+  else if (which==='itens')   renderItens();
+  else if (which==='energia') renderEnergia();
+  else if (which==='gas')     renderGas();
 }
 function sortedData(data,which) {
   const{col,dir}=sortState[which]; if(!col) return[...data];
@@ -714,7 +792,8 @@ function sortedData(data,which) {
 }
 
 const NF_COLS  =['Modelo','Arquivo','Loja','Numero NF','Data Emissão','Vencimento','Nome Emitente','CNPJ Emitente','CNPJ/CPF Destinatário','HP','HFP','Quantidade Total','V. Total NF'];
-const IT_COLS  =['Loja','Nome Emitente','Numero NF','Data Emissão','Vencimento','HFP','HP','Quantidade Total','V. Total NF'];
+const IT_COLS  =['Loja','Nome Emitente','Numero NF','Data Emissão','Vencimento','Quantidade Total','V. Total NF'];
+const ENERGIA_COLS =['Loja','Nome Emitente','CNPJ Emitente','Numero NF','Data Emissão','Vencimento','HFP','HP','Quantidade Total','V. Total NF'];
 
 // badge de modelo
 function modeloBadge(m) {
@@ -762,10 +841,35 @@ function renderItens() {
     if(sortState.itens.col===IT_COLS[i]) th.classList.add(sortState.itens.dir===1?'sort-asc':'sort-desc');
   });
   const tbody=document.getElementById('tbody-itens');
-  if(!rows.length){tbody.innerHTML=`<tr><td colspan="9" class="empty-cell"><span class="empty-icon">📋</span>Nenhuma nota carregada</td></tr>`;return;}
+  if(!rows.length){tbody.innerHTML=`<tr><td colspan="7" class="empty-cell"><span class="empty-icon">📋</span>Nenhuma nota carregada</td></tr>`;return;}
   tbody.innerHTML=rows.map((r,i)=>`<tr>
     <td class="td-loja">${r['Loja']??'—'}</td>
     <td class="td-desc" title="${r['Nome Emitente']||''}">${trunc(r['Nome Emitente'],26)}</td>
+    <td class="td-code">${r['Numero NF']??'—'}</td>
+    <td class="td-date">${fmtDate(r['Data Emissão'])}</td>
+    <td class="td-date">${fmtDate(r['Vencimento'])}</td>
+    <td class="td-num">${fmtNum(r['Quantidade Total'],0)}</td>
+    <td class="td-num">${fmtBRL(r['V. Total NF'])}</td>
+  </tr>`).join('');
+}
+
+function renderEnergia() {
+  const q=document.getElementById('search-energia').value.toLowerCase();
+  // filtra notas cujos CNPJs emitentes estão cadastrados como energia
+  let rows=dbNF.filter(r => cnpjsEnergia.has(soDigitos(r['CNPJ Emitente'])));
+  rows=sortedData(rows,'energia');
+  if(q) rows=rows.filter(r=>Object.values(r).some(v=>String(v).toLowerCase().includes(q)));
+  document.getElementById('count-energia').textContent=`${rows.length} registros`;
+  document.querySelectorAll('#tab-energia thead th').forEach((th,i)=>{
+    th.classList.remove('sort-asc','sort-desc');
+    if(sortState.energia.col===ENERGIA_COLS[i]) th.classList.add(sortState.energia.dir===1?'sort-asc':'sort-desc');
+  });
+  const tbody=document.getElementById('tbody-energia');
+  if(!rows.length){tbody.innerHTML=`<tr><td colspan="10" class="empty-cell"><span class="empty-icon">⚡</span>Nenhuma nota encontrada para os CNPJs de energia cadastrados</td></tr>`;return;}
+  tbody.innerHTML=rows.map(r=>`<tr>
+    <td class="td-loja">${r['Loja']??'—'}</td>
+    <td class="td-desc" title="${r['Nome Emitente']||''}">${trunc(r['Nome Emitente'],26)}</td>
+    <td class="td-cnpj">${fmtCNPJ(r['CNPJ Emitente'])}</td>
     <td class="td-code">${r['Numero NF']??'—'}</td>
     <td class="td-date">${fmtDate(r['Data Emissão'])}</td>
     <td class="td-date">${fmtDate(r['Vencimento'])}</td>
@@ -776,7 +880,7 @@ function renderItens() {
   </tr>`).join('');
 }
 
-function refresh() { updateKPIs(); renderNF(); renderItens(); renderGas(); }
+function refresh() { updateKPIs(); renderNF(); renderItens(); renderEnergia(); renderGas(); }
 
 // ═══════════════════════════════════════════════════════════
 // ── ABA GÁS: cadastro e filtro de CNPJs de fornecedores ──
@@ -852,7 +956,7 @@ function renderGas() {
   // se não há CNPJs cadastrados, mostra mensagem orientativa
   if (!cnpjsGas.size) {
     document.getElementById('count-gas').textContent = '0 registros';
-    tbody.innerHTML = `<tr><td colspan="8" class="empty-cell"><span class="empty-icon">⛽</span>Cadastre os CNPJs de fornecedores de gás para ver as notas aqui<br><button class="btn-sm" style="margin-top:14px;border-color:rgba(255,179,71,.35);color:var(--warm);" onclick="abrirModalGas()">⛽ Cadastrar agora</button></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" class="empty-cell"><span class="empty-icon">⛽</span>Nenhum CNPJ de gás cadastrado no código</td></tr>`;
     return;
   }
 
@@ -896,13 +1000,27 @@ document.addEventListener('DOMContentLoaded', () => {
   // fecha modal ao clicar fora
   const overlay = document.getElementById('modal-gas');
   if (overlay) overlay.addEventListener('click', e => { if (e.target === overlay) fecharModalGas(); });
+  // reflete os CNPJs pré-cadastrados na UI assim que a página carrega
+  atualizarInfoCadastro();
 });
+
+// remove espaços invisíveis de campos de texto (espaço normal, NBSP \u00A0, tabs, quebras de linha)
+// valores não-string passam intactos (números, datas, etc.)
+function limparValor(v) {
+  if (typeof v !== 'string') return v;
+  return v.replace(/[\s\u00A0]+/g, ' ').trim();
+}
+function limparLinha(obj) {
+  const out = {};
+  for (const k in obj) out[k] = limparValor(obj[k]);
+  return out;
+}
 
 function exportarXlsx() {
   if(!dbNF.length){setStatus('Nada para exportar.','err');return;}
   const wb=XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(dbNF.map(r=>({...r,Chave:undefined}))),'Base Completa');
-  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(dbItens),'Itens');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(dbNF.map(r=>limparLinha({...r,Chave:undefined}))),'Base Completa');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(dbItens.map(limparLinha)),'Itens');
   XLSX.writeFile(wb,'notas_historico.xlsx');
   setStatus('Exportado com sucesso.','ok');
 }
@@ -912,8 +1030,13 @@ function exportarAba(which) {
     data = dbNF.map(r => ({...r, Chave: undefined}));
     sheet = 'Base Completa';
   } else if (which === 'itens') {
-    data = dbNF.map(r => ({'Loja':r['Loja'],'Empresa':r['Nome Emitente'],'NF':r['Numero NF'],'Emissão':r['Data Emissão'],'Vencimento':r['Vencimento'],'HFP':r['HFP'],'HP':r['HP'],'Total':r['Quantidade Total'],'Total Conta':r['V. Total NF']}));
+    data = dbNF.map(r => ({'Loja':r['Loja'],'Empresa':r['Nome Emitente'],'NF':r['Numero NF'],'Emissão':r['Data Emissão'],'Vencimento':r['Vencimento'],'Total':r['Quantidade Total'],'Total Conta':r['V. Total NF']}));
     sheet = 'Consinco';
+  } else if (which === 'energia') {
+    if (!cnpjsEnergia.size) { setStatus('Nenhum CNPJ de energia cadastrado.','err'); return; }
+    const filtradas = dbNF.filter(r => cnpjsEnergia.has(soDigitos(r['CNPJ Emitente'])));
+    data = filtradas.map(r => ({'Loja':r['Loja'],'Empresa':r['Nome Emitente'],'CNPJ':fmtCNPJ(r['CNPJ Emitente']),'NF':r['Numero NF'],'Emissão':r['Data Emissão'],'Vencimento':r['Vencimento'],'HFP':r['HFP'],'HP':r['HP'],'Total':r['Quantidade Total'],'Total Conta':r['V. Total NF']}));
+    sheet = 'Energia';
   } else if (which === 'gas') {
     if (!cnpjsGas.size) { setStatus('Cadastre os CNPJs de gás antes de exportar.','err'); return; }
     const filtradas = dbNF.filter(r => cnpjsGas.has(soDigitos(r['CNPJ Emitente'])));
@@ -930,6 +1053,8 @@ function exportarAba(which) {
     sheet = 'Gás';
   }
   if (!data || !data.length) { setStatus('Nada para exportar.','err'); return; }
+  // limpa espaços invisíveis de todos os campos de texto antes de exportar
+  data = data.map(limparLinha);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data), sheet);
   XLSX.writeFile(wb, `notas_${sheet.toLowerCase().replace(/[\s·ç]/g,'_').replace('á','a')}.xlsx`);
