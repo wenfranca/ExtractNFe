@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -337,6 +338,52 @@ tbody td.td-hfp   { color: var(--warm);  font-weight: 600; font-variant-numeric:
   </div>
 </div>
 
+<!-- MODAL INTEGRAÇÃO GÁS (Mês de referência + Dia) -->
+<div class="modal-overlay" id="modal-integrar-gas">
+  <div class="modal-box" style="max-width:440px;">
+    <div class="modal-title">⚡ Integração</div>
+    <div class="modal-sub">Selecione o mês de referência e o boletim antes de integrar</div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:8px;">
+      <div>
+        <label style="font-size:11px;color:var(--fog);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:6px;">Mês de referência (col. K) *</label>
+        <select id="sel-mes-ref" class="modal-select"
+                style="width:100%;background:var(--panel2);border:1px solid var(--rim);color:var(--ice);padding:10px 12px;border-radius:8px;font-family:var(--font-ui);font-size:14px;outline:none;">
+          <option value="">— Selecione —</option>
+          <option value="1">1 — Janeiro</option>
+          <option value="2">2 — Fevereiro</option>
+          <option value="3">3 — Março</option>
+          <option value="4">4 — Abril</option>
+          <option value="5">5 — Maio</option>
+          <option value="6">6 — Junho</option>
+          <option value="7">7 — Julho</option>
+          <option value="8">8 — Agosto</option>
+          <option value="9">9 — Setembro</option>
+          <option value="10">10 — Outubro</option>
+          <option value="11">11 — Novembro</option>
+          <option value="12">12 — Dezembro</option>
+        </select>
+      </div>
+      <div>
+        <label style="font-size:11px;color:var(--fog);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:6px;">Boletim (col. R) *</label>
+        <select id="sel-dia" class="modal-select"
+                style="width:100%;background:var(--panel2);border:1px solid var(--rim);color:var(--ice);padding:10px 12px;border-radius:8px;font-family:var(--font-ui);font-size:14px;outline:none;">
+          <option value="">— Selecione —</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="modal-info" style="margin-top:18px;">
+      <span id="integrar-info-notas" style="font-size:11px;color:var(--fog);">Os valores serão aplicados a todas as notas desta integração</span>
+    </div>
+
+    <div class="modal-actions">
+      <button class="modal-btn" onclick="fecharModalIntegrarGas()">Cancelar</button>
+      <button class="modal-btn primary" onclick="confirmarIntegrarGas()">Integrar</button>
+    </div>
+  </div>
+</div>
+
 <div class="topbar">
   <div class="topbar-left">
     <div class="brand">EXTRACT NF-e</div>
@@ -377,8 +424,8 @@ tbody td.td-hfp   { color: var(--warm);  font-weight: 600; font-variant-numeric:
   <div class="tab-bar">
     <button class="tab-btn active" onclick="switchTab('nf',this)">Base Completa</button>
     <button class="tab-btn"        onclick="switchTab('itens',this)">Consinco</button>
-    <button class="tab-btn"        onclick="switchTab('energia',this)">⚡ Energia</button>
-    <button class="tab-btn"        onclick="switchTab('gas',this)" style="color:var(--warm);">⛽ Gás</button>
+    <button class="tab-btn"        onclick="switchTab('dados',this)" style="color:var(--mint);"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:5px;"><path d="M9 2v4"/><path d="M15 2v4"/><path d="M7 6h10a2 2 0 0 1 2 2v3a5 5 0 0 1-5 5h-4a5 5 0 0 1-5-5V8a2 2 0 0 1 2-2z"/><path d="M12 16v6"/></svg>Dados</button>
+    <button class="tab-btn"        onclick="switchTab('planilha',this)" style="color:var(--neon2);">📊 Planilha</button>
   </div>
 
   <!-- BASE COMPLETA -->
@@ -441,58 +488,74 @@ tbody td.td-hfp   { color: var(--warm);  font-weight: 600; font-variant-numeric:
     </div>
   </div>
 
-  <!-- ENERGIA -->
-  <div class="tab-panel" id="tab-energia">
+  <!-- DADOS (unificado Gás + Energia) -->
+  <div class="tab-panel" id="tab-dados">
     <div class="table-card">
       <div class="table-toolbar">
-        <input class="tbl-search" id="search-energia" placeholder="Filtrar…" oninput="renderEnergia()">
-        <span class="record-count" id="count-energia">0 registros</span>
-        <button class="btn-sm" onclick="exportarAba('energia')">⬇ exportar aba</button>
+        <select id="sel-categoria-dados"
+                onchange="mudarCategoriaDados()"
+                style="background:var(--panel2);border:1px solid var(--rim);color:var(--ice);padding:6px 12px;border-radius:7px;font-family:var(--font-ui);font-size:12px;font-weight:600;outline:none;cursor:pointer;">
+          <option value="gas">⛽ GÁS</option>
+          <option value="energia">⚡ ENERGIA</option>
+        </select>
+        <input class="tbl-search" id="search-dados" placeholder="Filtrar…" oninput="renderDados()">
+        <span class="record-count" id="count-dados">0 registros</span>
+        <button class="btn-sm" id="btn-restaurar-dados" onclick="restaurarNotasDados()" style="display:none;border-color:var(--warm);color:var(--warm);" title="Restaurar notas excluídas da visão">↩ restaurar <span id="count-restaurar-dados">0</span></button>
+        <button class="btn-sm" onclick="exportarAba('dados')">⬇ exportar aba</button>
+        <button class="btn-sm" id="btn-vincular-gas" onclick="vincularPlanilhaGas()" style="border-color:var(--warm);color:var(--warm);">📎 vincular CONTROLE.xlsx</button>
+        <button class="btn-sm" id="btn-integrar-gas" onclick="integrarPlanilhaGasDireto()" style="border-color:var(--mint);color:var(--mint);display:none;">⚡ integrar direto</button>
+        <button class="btn-sm" id="btn-desvincular-gas" onclick="desvincularPlanilhaGas()" style="display:none;" title="Desvincular arquivo">✕</button>
+        <span id="gas-vinculo-info" style="font-size:11px;color:var(--fog);margin-left:4px;"></span>
       </div>
       <div class="table-wrap">
         <table>
-          <thead><tr>
-            <th onclick="sortTable('energia','Loja')">Loja</th>
-            <th onclick="sortTable('energia','Nome Emitente')">Empresa</th>
-            <th onclick="sortTable('energia','CNPJ Emitente')">CNPJ</th>
-            <th onclick="sortTable('energia','Numero NF')">NF</th>
-            <th onclick="sortTable('energia','Data Emissão')">Emissão</th>
-            <th onclick="sortTable('energia','Vencimento')">Vencimento</th>
-            <th onclick="sortTable('energia','HFP')" title="Horário Fora de Ponta">HFP</th>
-            <th onclick="sortTable('energia','HP')" title="Horário de Ponta">HP</th>
-            <th onclick="sortTable('energia','Quantidade Total')">Total</th>
-            <th onclick="sortTable('energia','V. Total NF')">Total Conta</th>
-          </tr></thead>
-          <tbody id="tbody-energia">
-            <tr><td colspan="10" class="empty-cell"><span class="empty-icon">⚡</span>Nenhuma nota carregada</td></tr>
+          <thead id="thead-dados"></thead>
+          <tbody id="tbody-dados">
+            <tr><td class="empty-cell"><span class="empty-icon" style="color:var(--mint);"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-6px;"><path d="M9 2v4"/><path d="M15 2v4"/><path d="M7 6h10a2 2 0 0 1 2 2v3a5 5 0 0 1-5 5h-4a5 5 0 0 1-5-5V8a2 2 0 0 1 2-2z"/><path d="M12 16v6"/></svg></span>Carregue XMLs e selecione a categoria</td></tr>
           </tbody>
         </table>
       </div>
     </div>
   </div>
 
-  <!-- GÁS -->
-  <div class="tab-panel" id="tab-gas">
+  <!-- PLANILHA (visualização direto do CONTROLE.xlsx) -->
+  <div class="tab-panel" id="tab-planilha">
     <div class="table-card">
       <div class="table-toolbar">
-        <input class="tbl-search" id="search-gas" placeholder="Filtrar…" oninput="renderGas()">
-        <span class="record-count" id="count-gas">0 registros</span>
-        <button class="btn-sm" onclick="exportarAba('gas')">⬇ exportar aba</button>
+        <select id="sel-planilha-aba"
+                onchange="carregarAbaPlanilha()"
+                style="background:var(--panel2);border:1px solid var(--rim);color:var(--ice);padding:6px 12px;border-radius:7px;font-family:var(--font-ui);font-size:12px;outline:none;cursor:pointer;">
+          <option value="GÁS">⛽ GÁS</option>
+          <option value="ENERGIA">⚡ ENERGIA</option>
+          <option value="ÁGUA">💧 ÁGUA</option>
+        </select>
+        <select id="sel-planilha-mes"
+                onchange="renderPlanilha()"
+                title="Filtrar por mês de referência"
+                style="background:var(--panel2);border:1px solid var(--rim);color:var(--ice);padding:6px 12px;border-radius:7px;font-family:var(--font-ui);font-size:12px;outline:none;cursor:pointer;">
+          <option value="">Todos os meses</option>
+          <option value="1">1 — Janeiro</option>
+          <option value="2">2 — Fevereiro</option>
+          <option value="3">3 — Março</option>
+          <option value="4">4 — Abril</option>
+          <option value="5">5 — Maio</option>
+          <option value="6">6 — Junho</option>
+          <option value="7">7 — Julho</option>
+          <option value="8">8 — Agosto</option>
+          <option value="9">9 — Setembro</option>
+          <option value="10">10 — Outubro</option>
+          <option value="11">11 — Novembro</option>
+          <option value="12">12 — Dezembro</option>
+        </select>
+        <input class="tbl-search" id="search-planilha" placeholder="Filtrar…" oninput="renderPlanilha()">
+        <span class="record-count" id="count-planilha">0 registros</span>
+        <span id="planilha-info" style="font-size:11px;color:var(--fog);margin-left:auto;"></span>
       </div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr>
-            <th onclick="sortTable('gas','Loja')">Loja</th>
-            <th onclick="sortTable('gas','Nome Emitente')">Empresa</th>
-            <th onclick="sortTable('gas','CNPJ Emitente')">CNPJ</th>
-            <th onclick="sortTable('gas','Numero NF')">NF</th>
-            <th onclick="sortTable('gas','Data Emissão')">Emissão</th>
-            <th onclick="sortTable('gas','Vencimento')">Vencimento</th>
-            <th onclick="sortTable('gas','Quantidade Total')">Quantidade</th>
-            <th onclick="sortTable('gas','V. Total NF')">V. Total NF</th>
-          </tr></thead>
-          <tbody id="tbody-gas">
-            <tr><td colspan="8" class="empty-cell"><span class="empty-icon">⛽</span>Cadastre os CNPJs de fornecedores de gás para ver as notas aqui</td></tr>
+      <div class="table-wrap" id="planilha-wrap" style="max-height:60vh;">
+        <table id="tabela-planilha">
+          <thead id="thead-planilha"></thead>
+          <tbody id="tbody-planilha">
+            <tr><td class="empty-cell"><span class="empty-icon">📊</span>Vincule o CONTROLE.xlsx para visualizar os dados</td></tr>
           </tbody>
         </table>
       </div>
@@ -566,6 +629,11 @@ const CNPJS_ENERGIA_PRE_CADASTRADOS = [
 let cnpjsEnergia = new Set(CNPJS_ENERGIA_PRE_CADASTRADOS);
 let sortState = { nf:{col:null,dir:1}, itens:{col:null,dir:1}, energia:{col:null,dir:1}, gas:{col:null,dir:1} };
 
+// Notas de gás excluídas da visão atual (não vão aparecer na tabela nem na integração)
+// Conjunto de ChaveAcesso (ou Arquivo como fallback). Zerado sempre que XMLs são recarregados.
+let notasExcluidasGas = new Set();
+function idNotaGas(r) { return r && (r['ChaveAcesso'] || r['Chave'] || r['Arquivo']) || ''; }
+
 function dragOver(e)  { e.preventDefault(); e.currentTarget.classList.add('drag-over'); }
 function dragLeave(e) { e.currentTarget.classList.remove('drag-over'); }
 function dropFiles(e) { e.preventDefault(); e.currentTarget.classList.remove('drag-over'); handleFiles(e.dataTransfer.files); }
@@ -575,6 +643,9 @@ async function handleFiles(files) {
   if (!arr.length) { setStatus('Nenhum arquivo .xml encontrado.','err'); return; }
   document.getElementById('loader').style.display = 'flex';
   await new Promise(r => setTimeout(r,30));
+
+  // Recarregar XMLs zera as exclusões da visão atual (regra acordada)
+  notasExcluidasGas = new Set();
 
   let added=0, skipped=0, errors=0;
 
@@ -748,8 +819,12 @@ let abaAtiva = 'nf'; // 'nf' | 'itens' | 'energia' | 'gas'
 function updateKPIs() {
   // KPIs reagem conforme a aba ativa
   let base;
-  if      (abaAtiva === 'gas')     base = dbNF.filter(r => cnpjsGas.has(soDigitos(r['CNPJ Emitente'])));
+  if      (abaAtiva === 'gas')     base = dbNF.filter(r => cnpjsGas.has(soDigitos(r['CNPJ Emitente'])) && !notasExcluidasGas.has(idNotaGas(r)));
   else if (abaAtiva === 'energia') base = dbNF.filter(r => cnpjsEnergia.has(soDigitos(r['CNPJ Emitente'])));
+  else if (abaAtiva === 'dados') {
+    // categoria selecionada no painel unificado
+    base = notasDaCategoria(categoriaDados);
+  }
   else                             base = dbNF;
   const total=base.reduce((s,r)=>s+(r['V. Total NF']||0),0);
   const lojas=new Set(base.map(r=>r['Loja']).filter(Boolean)).size;
@@ -773,14 +848,18 @@ function switchTab(tab,btn) {
   document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
   document.getElementById('tab-'+tab).classList.add('active');
   updateKPIs(); // recalcula os cards ao trocar de aba
+  if (tab === 'planilha') carregarAbaPlanilha();
 }
 
 function sortTable(which,col) {
+  // cria entrada no sortState se não existir (para 'dados')
+  if (!sortState[which]) sortState[which] = { col: null, dir: 1 };
   const s=sortState[which]; s.dir=s.col===col?-s.dir:1; s.col=col;
   if      (which==='nf')      renderNF();
   else if (which==='itens')   renderItens();
   else if (which==='energia') renderEnergia();
   else if (which==='gas')     renderGas();
+  else if (which==='dados')   renderDados();
 }
 function sortedData(data,which) {
   const{col,dir}=sortState[which]; if(!col) return[...data];
@@ -853,34 +932,11 @@ function renderItens() {
   </tr>`).join('');
 }
 
-function renderEnergia() {
-  const q=document.getElementById('search-energia').value.toLowerCase();
-  // filtra notas cujos CNPJs emitentes estão cadastrados como energia
-  let rows=dbNF.filter(r => cnpjsEnergia.has(soDigitos(r['CNPJ Emitente'])));
-  rows=sortedData(rows,'energia');
-  if(q) rows=rows.filter(r=>Object.values(r).some(v=>String(v).toLowerCase().includes(q)));
-  document.getElementById('count-energia').textContent=`${rows.length} registros`;
-  document.querySelectorAll('#tab-energia thead th').forEach((th,i)=>{
-    th.classList.remove('sort-asc','sort-desc');
-    if(sortState.energia.col===ENERGIA_COLS[i]) th.classList.add(sortState.energia.dir===1?'sort-asc':'sort-desc');
-  });
-  const tbody=document.getElementById('tbody-energia');
-  if(!rows.length){tbody.innerHTML=`<tr><td colspan="10" class="empty-cell"><span class="empty-icon">⚡</span>Nenhuma nota encontrada para os CNPJs de energia cadastrados</td></tr>`;return;}
-  tbody.innerHTML=rows.map(r=>`<tr>
-    <td class="td-loja">${r['Loja']??'—'}</td>
-    <td class="td-desc" title="${r['Nome Emitente']||''}">${trunc(r['Nome Emitente'],26)}</td>
-    <td class="td-cnpj">${fmtCNPJ(r['CNPJ Emitente'])}</td>
-    <td class="td-code">${r['Numero NF']??'—'}</td>
-    <td class="td-date">${fmtDate(r['Data Emissão'])}</td>
-    <td class="td-date">${fmtDate(r['Vencimento'])}</td>
-    <td class="td-num td-hfp">${r['HFP']!=null?fmtNum(r['HFP'],0):'—'}</td>
-    <td class="td-num td-hp">${r['HP']!=null?fmtNum(r['HP'],0):'—'}</td>
-    <td class="td-num">${fmtNum(r['Quantidade Total'],0)}</td>
-    <td class="td-num">${fmtBRL(r['V. Total NF'])}</td>
-  </tr>`).join('');
-}
+// renderEnergia foi substituída pelo painel Dados unificado — mantém stub vazio
+// porque refresh() e outros lugares ainda chamam o nome antigo.
+function renderEnergia() { /* legacy stub — usa renderDados() */ }
 
-function refresh() { updateKPIs(); renderNF(); renderItens(); renderEnergia(); renderGas(); }
+function refresh() { updateKPIs(); renderNF(); renderItens(); renderDados(); }
 
 // ═══════════════════════════════════════════════════════════
 // ── ABA GÁS: cadastro e filtro de CNPJs de fornecedores ──
@@ -947,51 +1003,166 @@ function atualizarInfoCadastro() {
   }
 }
 
-const GAS_COLS = ['Loja','Nome Emitente','CNPJ Emitente','Numero NF','Data Emissão','Vencimento','Quantidade Total','V. Total NF'];
+const GAS_COLS     = ['Loja','Nome Emitente','CNPJ Emitente','Numero NF','Data Emissão','Vencimento','Quantidade Total','V. Total NF'];
+const ENERGIA_TBL_COLS = ['Loja','Nome Emitente','CNPJ Emitente','Numero NF','Data Emissão','Vencimento','HFP','HP','Quantidade Total','V. Total NF'];
 
-function renderGas() {
-  const tbody = document.getElementById('tbody-gas');
-  if (!tbody) return;
+// Categoria ativa no painel "Dados": 'gas' | 'energia'
+let categoriaDados = 'gas';
 
-  // se não há CNPJs cadastrados, mostra mensagem orientativa
-  if (!cnpjsGas.size) {
-    document.getElementById('count-gas').textContent = '0 registros';
-    tbody.innerHTML = `<tr><td colspan="8" class="empty-cell"><span class="empty-icon">⛽</span>Nenhum CNPJ de gás cadastrado no código</td></tr>`;
+function mudarCategoriaDados() {
+  const sel = document.getElementById('sel-categoria-dados');
+  if (!sel) return;
+  categoriaDados = sel.value;
+  renderDados();
+  updateKPIs();
+}
+
+// ─── Exclusão de notas da visão atual (aba Dados) ───
+// Um único Set serve as duas categorias — remover uma nota de gás não afeta energia
+// porque as notas têm IDs distintos. Volta ao recarregar XMLs.
+function excluirNotaGas(id) {
+  if (!id) return;
+  notasExcluidasGas.add(id);
+  renderDados();
+  atualizarBotaoRestaurarDados();
+}
+
+function restaurarNotasDados() {
+  if (!notasExcluidasGas.size) return;
+  const n = notasExcluidasGas.size;
+  notasExcluidasGas = new Set();
+  renderDados();
+  atualizarBotaoRestaurarDados();
+  setStatus(`${n} nota(s) restaurada(s) à visão.`, 'ok');
+}
+
+// compat: alias para não quebrar chamadas antigas
+function restaurarNotasGas() { restaurarNotasDados(); }
+
+function atualizarBotaoRestaurarDados() {
+  const btn = document.getElementById('btn-restaurar-dados');
+  const cnt = document.getElementById('count-restaurar-dados');
+  if (!btn) return;
+  if (notasExcluidasGas.size) {
+    btn.style.display = '';
+    if (cnt) cnt.textContent = String(notasExcluidasGas.size);
+  } else {
+    btn.style.display = 'none';
+  }
+}
+
+// retorna as notas da categoria ativa (respeitando CNPJs cadastrados e exclusões)
+function notasDaCategoria(cat) {
+  cat = cat || categoriaDados;
+  const cnpjs = cat === 'energia' ? cnpjsEnergia : cnpjsGas;
+  return dbNF.filter(r =>
+    cnpjs.has(soDigitos(r['CNPJ Emitente'])) &&
+    !notasExcluidasGas.has(idNotaGas(r))
+  );
+}
+
+function renderDados() {
+  const tbody = document.getElementById('tbody-dados');
+  const thead = document.getElementById('thead-dados');
+  if (!tbody || !thead) return;
+
+  const ehEnergia = categoriaDados === 'energia';
+  const icone = ehEnergia ? '⚡' : '⛽';
+  const nomeCat = ehEnergia ? 'energia' : 'gás';
+
+  // monta cabeçalho conforme categoria
+  const cols = ehEnergia ? ENERGIA_TBL_COLS : GAS_COLS;
+  const totalCols = cols.length + 1; // +1 pela coluna do X
+  thead.innerHTML = '<tr>' +
+    `<th style="width:36px;" title="Excluir da visão">✕</th>` +
+    cols.map(c => {
+      const label = c === 'Nome Emitente' ? 'Empresa'
+                  : c === 'CNPJ Emitente' ? 'CNPJ'
+                  : c === 'Numero NF' ? 'NF'
+                  : c === 'Data Emissão' ? 'Emissão'
+                  : c === 'Quantidade Total' ? (ehEnergia ? 'Total' : 'Quantidade')
+                  : c === 'V. Total NF' ? (ehEnergia ? 'Total Conta' : 'V. Total NF')
+                  : c;
+      return `<th onclick="sortTable('dados','${c}')">${label}</th>`;
+    }).join('') +
+  '</tr>';
+
+  // mensagem de orientação se CNPJs não cadastrados
+  const cnpjsCat = ehEnergia ? cnpjsEnergia : cnpjsGas;
+  if (!cnpjsCat.size) {
+    document.getElementById('count-dados').textContent = '0 registros';
+    tbody.innerHTML = `<tr><td colspan="${totalCols}" class="empty-cell"><span class="empty-icon">${icone}</span>Nenhum CNPJ de ${nomeCat} cadastrado no código</td></tr>`;
+    atualizarBotaoRestaurarDados();
     return;
   }
 
-  // filtra notas cujos CNPJs emitentes estão cadastrados
-  let rows = dbNF.filter(r => cnpjsGas.has(soDigitos(r['CNPJ Emitente'])));
+  let rows = notasDaCategoria(categoriaDados);
 
   // busca textual
-  const q = document.getElementById('search-gas').value.toLowerCase();
+  const q = document.getElementById('search-dados').value.toLowerCase();
   if (q) rows = rows.filter(r => Object.values(r).some(v => String(v).toLowerCase().includes(q)));
 
-  // ordenação
-  rows = sortedData(rows, 'gas');
+  // ordenação (reusa o sortState compartilhado — cada categoria mantém seu estado em sortState.dados)
+  if (!sortState.dados) sortState.dados = { col: null, dir: 1 };
+  rows = sortedData(rows, 'dados');
 
-  document.getElementById('count-gas').textContent = `${rows.length} registros`;
-  document.querySelectorAll('#tab-gas thead th').forEach((th,i) => {
+  const totalExcluidas = notasExcluidasGas.size;
+  const txtExcluidas = totalExcluidas ? ` · ${totalExcluidas} excluída(s)` : '';
+  document.getElementById('count-dados').textContent = `${rows.length} registros${txtExcluidas}`;
+
+  // marca indicador de ordenação
+  thead.querySelectorAll('th').forEach((th,i) => {
     th.classList.remove('sort-asc','sort-desc');
-    if (sortState.gas.col === GAS_COLS[i]) th.classList.add(sortState.gas.dir === 1 ? 'sort-asc' : 'sort-desc');
+    if (i > 0 && sortState.dados.col === cols[i-1]) {
+      th.classList.add(sortState.dados.dir === 1 ? 'sort-asc' : 'sort-desc');
+    }
   });
 
+  atualizarBotaoRestaurarDados();
+
   if (!rows.length) {
-    tbody.innerHTML = `<tr><td colspan="8" class="empty-cell"><span class="empty-icon">⛽</span>Nenhuma nota encontrada para os CNPJs cadastrados<br><span style="font-size:11px;">Suba XMLs ou confira os CNPJs cadastrados</span></td></tr>`;
+    const msg = totalExcluidas
+      ? `Todas as ${totalExcluidas} nota(s) foram excluídas da visão. <a href="#" onclick="restaurarNotasDados();return false;" style="color:var(--warm);">restaurar</a>`
+      : `Nenhuma nota encontrada para os CNPJs de ${nomeCat} cadastrados<br><span style="font-size:11px;">Suba XMLs ou confira os CNPJs cadastrados</span>`;
+    tbody.innerHTML = `<tr><td colspan="${totalCols}" class="empty-cell"><span class="empty-icon">${icone}</span>${msg}</td></tr>`;
     return;
   }
 
-  tbody.innerHTML = rows.map(r => `<tr>
-    <td class="td-loja">${r['Loja']??'—'}</td>
-    <td class="td-desc" title="${r['Nome Emitente']||''}">${trunc(r['Nome Emitente'],28)}</td>
-    <td class="td-cnpj">${fmtCNPJ(r['CNPJ Emitente'])}</td>
-    <td class="td-code">${r['Numero NF']??'—'}</td>
-    <td class="td-date">${fmtDate(r['Data Emissão'])}</td>
-    <td class="td-date">${fmtDate(r['Vencimento'])}</td>
-    <td class="td-num">${fmtNum(r['Quantidade Total'],0)}</td>
-    <td class="td-num">${fmtBRL(r['V. Total NF'])}</td>
-  </tr>`).join('');
+  tbody.innerHTML = rows.map(r => {
+    const id = idNotaGas(r);
+    const idEsc = String(id).replace(/'/g, "\\'");
+    const btnX = `<td><button class="btn-excluir-gas" title="Excluir esta nota da visão" onclick="excluirNotaGas('${idEsc}')" style="background:transparent;border:1px solid var(--rim2);color:var(--fog);width:22px;height:22px;border-radius:4px;cursor:pointer;font-size:12px;line-height:1;padding:0;transition:all .15s;" onmouseover="this.style.borderColor='var(--hot)';this.style.color='var(--hot)';" onmouseout="this.style.borderColor='var(--rim2)';this.style.color='var(--fog)';">✕</button></td>`;
+    if (ehEnergia) {
+      return `<tr>${btnX}
+        <td class="td-loja">${r['Loja']??'—'}</td>
+        <td class="td-desc" title="${r['Nome Emitente']||''}">${trunc(r['Nome Emitente'],26)}</td>
+        <td class="td-cnpj">${fmtCNPJ(r['CNPJ Emitente'])}</td>
+        <td class="td-code">${r['Numero NF']??'—'}</td>
+        <td class="td-date">${fmtDate(r['Data Emissão'])}</td>
+        <td class="td-date">${fmtDate(r['Vencimento'])}</td>
+        <td class="td-num td-hfp">${r['HFP']!=null?fmtNum(r['HFP'],0):'—'}</td>
+        <td class="td-num td-hp">${r['HP']!=null?fmtNum(r['HP'],0):'—'}</td>
+        <td class="td-num">${fmtNum(r['Quantidade Total'],0)}</td>
+        <td class="td-num">${fmtBRL(r['V. Total NF'])}</td>
+      </tr>`;
+    } else {
+      return `<tr>${btnX}
+        <td class="td-loja">${r['Loja']??'—'}</td>
+        <td class="td-desc" title="${r['Nome Emitente']||''}">${trunc(r['Nome Emitente'],28)}</td>
+        <td class="td-cnpj">${fmtCNPJ(r['CNPJ Emitente'])}</td>
+        <td class="td-code">${r['Numero NF']??'—'}</td>
+        <td class="td-date">${fmtDate(r['Data Emissão'])}</td>
+        <td class="td-date">${fmtDate(r['Vencimento'])}</td>
+        <td class="td-num">${fmtNum(r['Quantidade Total'],0)}</td>
+        <td class="td-num">${fmtBRL(r['V. Total NF'])}</td>
+      </tr>`;
+    }
+  }).join('');
 }
+
+// aliases legados pra não quebrar chamadas antigas
+function renderGas() { renderDados(); }
+function atualizarBotaoRestaurarGas() { atualizarBotaoRestaurarDados(); }
 
 // listener para atualizar contador em tempo real no modal
 document.addEventListener('DOMContentLoaded', () => {
@@ -1032,14 +1203,26 @@ function exportarAba(which) {
   } else if (which === 'itens') {
     data = dbNF.map(r => ({'Loja':r['Loja'],'Empresa':r['Nome Emitente'],'NF':r['Numero NF'],'Emissão':r['Data Emissão'],'Vencimento':r['Vencimento'],'Total':r['Quantidade Total'],'Total Conta':r['V. Total NF']}));
     sheet = 'Consinco';
-  } else if (which === 'energia') {
+  } else if (which === 'dados') {
+    // exporta a categoria ativa no painel Dados
+    which = categoriaDados; // cai nos blocos abaixo
+  }
+
+  if (which === 'energia') {
     if (!cnpjsEnergia.size) { setStatus('Nenhum CNPJ de energia cadastrado.','err'); return; }
-    const filtradas = dbNF.filter(r => cnpjsEnergia.has(soDigitos(r['CNPJ Emitente'])));
+    // respeita exclusões da visão atual
+    const filtradas = dbNF.filter(r =>
+      cnpjsEnergia.has(soDigitos(r['CNPJ Emitente'])) &&
+      !notasExcluidasGas.has(idNotaGas(r))
+    );
     data = filtradas.map(r => ({'Loja':r['Loja'],'Empresa':r['Nome Emitente'],'CNPJ':fmtCNPJ(r['CNPJ Emitente']),'NF':r['Numero NF'],'Emissão':r['Data Emissão'],'Vencimento':r['Vencimento'],'HFP':r['HFP'],'HP':r['HP'],'Total':r['Quantidade Total'],'Total Conta':r['V. Total NF']}));
     sheet = 'Energia';
   } else if (which === 'gas') {
     if (!cnpjsGas.size) { setStatus('Cadastre os CNPJs de gás antes de exportar.','err'); return; }
-    const filtradas = dbNF.filter(r => cnpjsGas.has(soDigitos(r['CNPJ Emitente'])));
+    const filtradas = dbNF.filter(r =>
+      cnpjsGas.has(soDigitos(r['CNPJ Emitente'])) &&
+      !notasExcluidasGas.has(idNotaGas(r))
+    );
     data = filtradas.map(r => ({
       'Loja':          r['Loja'],
       'Empresa':       r['Nome Emitente'],
@@ -1090,9 +1273,970 @@ function handleXlsxImport(input) {
 
 function limparTudo() {
   if(!dbNF.length||confirm('Limpar todos os dados?')){
-    dbNF=[];dbItens=[];setStatus('Dados limpos.');refresh();
+    dbNF=[];dbItens=[];
+    notasExcluidasGas=new Set();
+    setStatus('Dados limpos.');refresh();
   }
 }
+// ─── INTEGRAÇÃO COM CONTROLE.xlsx (ABA GÁS) via File System Access API ───
+// Mantém um handle pro arquivo enquanto a aba estiver aberta.
+// Fluxo: vincular (uma vez) → integrar direto quantas vezes quiser.
+
+let gasFileHandle = null;         // FileSystemFileHandle
+let gasFileName   = '';           // nome exibido na UI
+
+function suportaFileSystemAccess() {
+  return typeof window !== 'undefined' && 'showOpenFilePicker' in window;
+}
+
+function atualizarUiVinculoGas() {
+  const vBtn  = document.getElementById('btn-vincular-gas');
+  const iBtn  = document.getElementById('btn-integrar-gas');
+  const dBtn  = document.getElementById('btn-desvincular-gas');
+  const info  = document.getElementById('gas-vinculo-info');
+  if (!vBtn || !iBtn || !dBtn || !info) return;
+  if (gasFileHandle) {
+    vBtn.style.display = 'none';
+    iBtn.style.display = '';
+    dBtn.style.display = '';
+    info.innerHTML = `🔗 <span style="color:var(--mint);">${gasFileName}</span>`;
+  } else {
+    vBtn.style.display = '';
+    iBtn.style.display = 'none';
+    dBtn.style.display = 'none';
+    info.textContent = '';
+  }
+}
+
+async function vincularPlanilhaGas() {
+  if (!suportaFileSystemAccess()) {
+    setStatus('Seu navegador não suporta edição direta. Use o Chrome ou Edge.', 'err');
+    return;
+  }
+  try {
+    const [handle] = await window.showOpenFilePicker({
+      types: [{
+        description: 'Planilha Excel',
+        accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] }
+      }],
+      multiple: false,
+      excludeAcceptAllOption: false
+    });
+    // solicita permissão de escrita imediatamente (pra não pedir depois)
+    const perm = await handle.requestPermission({ mode: 'readwrite' });
+    if (perm !== 'granted') {
+      setStatus('Permissão de escrita negada.', 'err');
+      return;
+    }
+    gasFileHandle = handle;
+    gasFileName   = handle.name;
+    atualizarUiVinculoGas();
+    setStatus(`🔗 ${gasFileName} vinculado. Agora basta clicar em "Integrar direto".`, 'ok');
+  } catch (err) {
+    if (err && err.name === 'AbortError') return; // usuário cancelou
+    console.error(err);
+    setStatus('Erro ao vincular arquivo: ' + err.message, 'err');
+  }
+}
+
+function desvincularPlanilhaGas() {
+  gasFileHandle = null;
+  gasFileName = '';
+  atualizarUiVinculoGas();
+  setStatus('Arquivo desvinculado.');
+  // limpa cache da aba Planilha
+  cacheDadosPlanilha = {};
+  renderPlanilhaVazia('Arquivo desvinculado. Vincule novamente para visualizar.');
+}
+
+// ═══════════════════════════════════════════════════════════
+// ── ABA PLANILHA: visualização direta do CONTROLE.xlsx ──
+// ═══════════════════════════════════════════════════════════
+
+// Cache leve por aba (só é usado dentro da própria chamada — a regra é recarregar
+// sempre que trocar de aba no app; aqui só evita re-ler no mesmo click)
+let cacheDadosPlanilha = {}; // { 'GÁS': { headers, rows, readAt } }
+
+function renderPlanilhaVazia(msg) {
+  const thead = document.getElementById('thead-planilha');
+  const tbody = document.getElementById('tbody-planilha');
+  if (thead) thead.innerHTML = '';
+  if (tbody) tbody.innerHTML = `<tr><td class="empty-cell"><span class="empty-icon">📊</span>${msg}</td></tr>`;
+  const cnt = document.getElementById('count-planilha');
+  if (cnt) cnt.textContent = '0 registros';
+}
+
+async function carregarAbaPlanilha() {
+  const nomeAba = document.getElementById('sel-planilha-aba')?.value || 'GÁS';
+  if (!gasFileHandle) {
+    renderPlanilhaVazia('Vincule o CONTROLE.xlsx para visualizar os dados');
+    return;
+  }
+  // invalida cache (regra: recarrega sempre que trocar)
+  cacheDadosPlanilha = {};
+
+  // reseta filtro de mês ao trocar de aba
+  const selMes = document.getElementById('sel-planilha-mes');
+  if (selMes) selMes.value = '';
+
+  const info = document.getElementById('planilha-info');
+  if (info) info.textContent = `lendo aba ${nomeAba}…`;
+
+  try {
+    const file = await gasFileHandle.getFile();
+    const buffer = await file.arrayBuffer();
+    const dados = await lerDadosAbaPlanilha(buffer, nomeAba);
+    cacheDadosPlanilha[nomeAba] = dados;
+    renderPlanilha();
+    if (info) info.textContent = `${gasFileName} · aba ${nomeAba}`;
+  } catch (err) {
+    console.error(err);
+    renderPlanilhaVazia(`Erro ao ler aba ${nomeAba}: ${err.message}`);
+    if (info) info.textContent = '';
+  }
+}
+
+// detecta o índice da coluna de mês nos cabeçalhos (MÊS REF., MES, MÊS, etc.)
+function acharColunaMes(headers) {
+  const normHdr = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
+  for (let i = 0; i < headers.length; i++) {
+    const n = normHdr(headers[i]);
+    // bate em "MES", "MES REF.", "MES REF", "MES DE REFERENCIA"
+    if (/^MES(\s|\.|$|\sREF)/.test(n) || n === 'MES' || /MES\s*REF/.test(n)) return i;
+  }
+  return -1;
+}
+
+function renderPlanilha() {
+  const nomeAba = document.getElementById('sel-planilha-aba')?.value || 'GÁS';
+  const dados = cacheDadosPlanilha[nomeAba];
+  if (!dados) { renderPlanilhaVazia(`Selecione uma aba para carregar`); return; }
+
+  const { headers, rows } = dados;
+  const thead = document.getElementById('thead-planilha');
+  const tbody = document.getElementById('tbody-planilha');
+  if (!thead || !tbody) return;
+
+  let filtradas = rows;
+
+  // filtro por MÊS (dropdown)
+  const mesSel = document.getElementById('sel-planilha-mes')?.value || '';
+  if (mesSel) {
+    const idxMes = acharColunaMes(headers);
+    if (idxMes >= 0) {
+      const alvo = String(parseInt(mesSel, 10));
+      filtradas = filtradas.filter(r => {
+        const v = r[idxMes];
+        if (v === null || v === undefined || v === '') return false;
+        // normaliza: aceita "3", 3, "03"
+        const n = parseInt(String(v).trim(), 10);
+        return !isNaN(n) && String(n) === alvo;
+      });
+    }
+    // se não achou coluna de mês, ignora o filtro silenciosamente
+  }
+
+  // filtro textual
+  const q = (document.getElementById('search-planilha')?.value || '').toLowerCase();
+  if (q) {
+    filtradas = filtradas.filter(r => r.some(v => String(v ?? '').toLowerCase().includes(q)));
+  }
+
+  document.getElementById('count-planilha').textContent = `${filtradas.length} registro${filtradas.length === 1 ? '' : 's'}`;
+
+  // limita a 500 linhas pra não travar o DOM em planilhas grandes
+  const LIMIT = 500;
+  const exibir = filtradas.slice(0, LIMIT);
+  const truncado = filtradas.length > LIMIT;
+
+  thead.innerHTML = `<tr>${headers.map(h => `<th>${escapeHtml(h)}</th>`).join('')}</tr>`;
+
+  if (!exibir.length) {
+    tbody.innerHTML = `<tr><td colspan="${headers.length}" class="empty-cell">Sem resultados para "${escapeHtml(q)}"</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = exibir.map(row => {
+    const cols = headers.map((_, i) => {
+      const v = row[i];
+      if (v === null || v === undefined || v === '') return '<td class="td-cnpj">—</td>';
+      return `<td title="${escapeHtml(String(v))}">${escapeHtml(String(v))}</td>`;
+    }).join('');
+    return `<tr>${cols}</tr>`;
+  }).join('')
+  + (truncado ? `<tr><td colspan="${headers.length}" class="empty-cell" style="color:var(--warm);">Mostrando ${LIMIT} de ${filtradas.length} linhas — use o filtro para refinar</td></tr>` : '');
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// Lê uma aba específica do CONTROLE.xlsx e retorna { headers, rows }
+// Usa a biblioteca XLSX (já carregada na página) para interpretar fórmulas como valores em cache
+async function lerDadosAbaPlanilha(buffer, nomeAba) {
+  if (typeof XLSX === 'undefined') {
+    throw new Error('Biblioteca XLSX não disponível');
+  }
+  const wb = XLSX.read(new Uint8Array(buffer), { type: 'array', cellDates: true, cellFormula: false });
+
+  // Acha a aba ignorando acentos e maiúsculas
+  const normalizar = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
+  const alvo = normalizar(nomeAba);
+  const abaReal = wb.SheetNames.find(n => normalizar(n) === alvo);
+  if (!abaReal) {
+    throw new Error(`Aba "${nomeAba}" não encontrada. Abas disponíveis: ${wb.SheetNames.join(', ')}`);
+  }
+  const ws = wb.Sheets[abaReal];
+
+  // Converte a planilha toda em array de arrays (AOA)
+  // header:1 → usa primeira linha como cabeçalhos manualmente
+  // defval → preenche células vazias com null
+  const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: false, dateNF: 'dd/mm/yyyy' });
+  if (!aoa.length) return { headers: [], rows: [] };
+
+  let headers = (aoa[0] || []).map((h, i) => h != null && h !== '' ? String(h) : `Col${i+1}`);
+
+  // ─── Corte após a coluna REGIONAL ───
+  // A planilha tem colunas auxiliares (tabelas pivô, médias, etc.) após REGIONAL
+  // que não interessam na visualização. REGIONAL inclusive, resto descartado.
+  const idxRegional = headers.findIndex(h => normalizar(h) === 'REGIONAL');
+  const limite = idxRegional >= 0 ? idxRegional + 1 : headers.length;
+  headers = headers.slice(0, limite);
+
+  // pula linhas completamente vazias (considerando apenas as colunas que vão ser exibidas)
+  const rows = aoa.slice(1)
+    .map(r => (r || []).slice(0, limite))
+    .filter(r => r && r.some(v => v !== null && v !== ''));
+
+  return { headers, rows, readAt: Date.now() };
+}
+
+async function integrarPlanilhaGasDireto() {
+  if (!gasFileHandle) { setStatus('Vincule o CONTROLE.xlsx primeiro.', 'err'); return; }
+  if (!cnpjsGas.size) { setStatus('Cadastre os CNPJs de gás antes de integrar.', 'err'); return; }
+
+  // filtra CNPJs cadastrados E remove notas excluídas da visão
+  const notas = dbNF.filter(r =>
+    cnpjsGas.has(soDigitos(r['CNPJ Emitente'])) &&
+    !notasExcluidasGas.has(idNotaGas(r))
+  );
+  if (!notas.length) {
+    const msgExtra = notasExcluidasGas.size ? ' (todas foram excluídas da visão)' : '';
+    setStatus('Nenhuma nota de gás para integrar' + msgExtra + '.', 'err');
+    return;
+  }
+
+  if (typeof JSZip === 'undefined') {
+    setStatus('Biblioteca JSZip não carregou. Recarregue a página.', 'err');
+    return;
+  }
+
+  // Abre o modal pra seleção obrigatória de mês e boletim
+  abrirModalIntegrarGas(notas.length);
+}
+
+function abrirModalIntegrarGas(qtdNotas) {
+  // Popula o seletor de dia (1..30) se estiver vazio
+  const selDia = document.getElementById('sel-dia');
+  if (selDia && selDia.options.length <= 1) {
+    for (let d = 1; d <= 30; d++) {
+      const opt = document.createElement('option');
+      opt.value = String(d);
+      opt.textContent = String(d);
+      selDia.appendChild(opt);
+    }
+  }
+  // Reseta os seletores (regra: sempre em branco)
+  document.getElementById('sel-mes-ref').value = '';
+  if (selDia) selDia.value = '';
+
+  // Atualiza info
+  const info = document.getElementById('integrar-info-notas');
+  if (info) info.textContent = `${qtdNotas} nota(s) serão integradas · mês e boletim serão aplicados a todas`;
+
+  document.getElementById('modal-integrar-gas').classList.add('show');
+}
+
+function fecharModalIntegrarGas() {
+  document.getElementById('modal-integrar-gas').classList.remove('show');
+}
+
+async function confirmarIntegrarGas() {
+  const mesRef = document.getElementById('sel-mes-ref').value;
+  const dia = document.getElementById('sel-dia').value;
+
+  // Validação obrigatória
+  if (!mesRef || !dia) {
+    setStatus('Selecione o mês de referência E o boletim antes de integrar.', 'err');
+    return;
+  }
+
+  const mesNum = parseInt(mesRef, 10);
+  const diaNum = parseInt(dia, 10);
+  if (isNaN(mesNum) || mesNum < 1 || mesNum > 12) {
+    setStatus('Mês inválido.', 'err'); return;
+  }
+  if (isNaN(diaNum) || diaNum < 1 || diaNum > 30) {
+    setStatus('Boletim inválido (1–30).', 'err'); return;
+  }
+
+  fecharModalIntegrarGas();
+  await executarIntegracaoGas(mesNum, diaNum);
+}
+
+async function executarIntegracaoGas(mesRef, dia) {
+  if (!gasFileHandle) { setStatus('Vincule o CONTROLE.xlsx primeiro.', 'err'); return; }
+
+  // categoria ativa determina tudo: qual CNPJ-set filtrar, qual aba ler, qual mapeamento usar
+  const categoria = categoriaDados; // 'gas' | 'energia'
+  const cnpjsCat  = categoria === 'energia' ? cnpjsEnergia : cnpjsGas;
+  const nomeCat   = categoria === 'energia' ? 'energia' : 'gás';
+  const abaAlvo   = MAPEAMENTOS[categoria].abaAlvo; // 'GAS' ou 'ENERGIA' (normalizado)
+
+  if (!cnpjsCat.size) { setStatus(`Nenhum CNPJ de ${nomeCat} cadastrado.`, 'err'); return; }
+
+  // mesma regra de exclusão aplicada aqui (defesa em profundidade, caso algo mude entre os passos)
+  let notas = dbNF.filter(r =>
+    cnpjsCat.has(soDigitos(r['CNPJ Emitente'])) &&
+    !notasExcluidasGas.has(idNotaGas(r))
+  );
+  if (!notas.length) { setStatus(`Nenhuma nota de ${nomeCat} para integrar.`, 'err'); return; }
+
+  try {
+    // revalida permissão (em sessões futuras o navegador pode pedir de novo)
+    const perm = await gasFileHandle.queryPermission({ mode: 'readwrite' });
+    if (perm !== 'granted') {
+      const novo = await gasFileHandle.requestPermission({ mode: 'readwrite' });
+      if (novo !== 'granted') {
+        setStatus('Permissão de escrita negada.', 'err');
+        return;
+      }
+    }
+
+    setStatus(`Lendo ${gasFileName} para verificar duplicatas na aba ${abaAlvo}…`);
+    const file = await gasFileHandle.getFile();
+    const buffer = await file.arrayBuffer();
+
+    // ─── Verificação de DUPLICATAS (NF + CNPJ + Loja) ───
+    // Lê a aba correspondente à categoria (GÁS ou ENERGIA) e monta Set de chaves.
+    let duplicatasIds = [];
+    try {
+      const dadosAba = await lerDadosAbaPlanilha(buffer, abaAlvo);
+      const chavesExistentes = construirChavesDuplicata(dadosAba, categoria);
+
+      for (const nota of notas) {
+        // Para energia, a planilha não tem coluna CNPJ — usamos Nome Emitente (Empresa)
+        // como terceiro campo da chave, pra coincidir com construirChavesDuplicata().
+        const terceiroCampo = (categoria === 'energia')
+          ? nota['Nome Emitente']
+          : nota['CNPJ Emitente'];
+        const chave = chaveDuplicata(
+          nota['Numero NF'],
+          terceiroCampo,
+          nota['Loja']
+        );
+        if (chave && chavesExistentes.has(chave)) {
+          const id = idNotaGas(nota);
+          if (id) {
+            notasExcluidasGas.add(id);
+            duplicatasIds.push(id);
+          }
+        }
+      }
+
+      if (duplicatasIds.length) {
+        // re-filtra notas após auto-exclusão
+        notas = notas.filter(r => !duplicatasIds.includes(idNotaGas(r)));
+        renderDados();  // reflete as exclusões automáticas na UI
+      }
+    } catch (errDup) {
+      console.warn('Não foi possível verificar duplicatas:', errDup.message);
+      // segue adiante sem bloquear — o usuário pode não ter a aba ainda
+    }
+
+    if (!notas.length) {
+      const msg = duplicatasIds.length
+        ? `Todas as ${duplicatasIds.length} nota(s) já estão na planilha. Nada a gravar.`
+        : 'Nenhuma nota para gravar.';
+      setStatus(msg, 'err');
+      return;
+    }
+
+    setStatus(`Gravando ${notas.length} nota(s) na aba ${abaAlvo}…`);
+    const resultado = await processarXlsxGas(buffer, notas, { mesRef, dia, categoria });
+    if (!resultado.inseridas) { setStatus('Nenhuma nota pôde ser gravada.', 'err'); return; }
+
+    // escreve de volta no MESMO arquivo
+    setStatus('Gravando arquivo...');
+    const writable = await gasFileHandle.createWritable();
+    await writable.write(resultado.blob);
+    await writable.close();
+
+    const sufixoDup = duplicatasIds.length
+      ? ` · ${duplicatasIds.length} duplicata(s) auto-exclu\u00edda(s)`
+      : '';
+    setStatus(`\u2714 ${resultado.inseridas} nota(s) gravada(s) em ${gasFileName} (m\u00eas ${mesRef}, boletim ${dia})${sufixoDup}.`, 'ok');
+  } catch (err) {
+    console.error(err);
+    let msg = err.message || String(err);
+    if (err.name === 'NotAllowedError') msg = 'Permiss\u00e3o negada. Verifique se o arquivo n\u00e3o est\u00e1 aberto no Excel e autorize novamente.';
+    if (err.name === 'NotFoundError')   msg = 'Arquivo n\u00e3o encontrado. Ele pode ter sido movido ou apagado. Vincule novamente.';
+    setStatus('Erro ao integrar: ' + msg, 'err');
+  }
+}
+
+// Normaliza uma chave de duplicata (NF + CNPJ + Loja).
+// Retorna string "NF|CNPJ|LOJA" com CNPJ em só dígitos, NF e Loja trimmed+upper.
+// Retorna '' se alguma das partes for inválida → nesse caso nunca bate com nada.
+function chaveDuplicata(nf, cnpj, loja) {
+  const nfN = nf != null && nf !== '' ? String(nf).trim() : '';
+  const cnpjN = soDigitos(cnpj);
+  const lojaN = loja != null && loja !== '' ? String(loja).trim().toUpperCase() : '';
+  if (!nfN || !cnpjN || !lojaN) return '';
+  return `${nfN}|${cnpjN}|${lojaN}`;
+}
+
+// Varre as linhas da aba GÁS da planilha e monta um Set de chaves "NF|CNPJ|LOJA"
+// Para isso precisa saber em que coluna está cada campo. Usa os cabeçalhos.
+function construirChavesDuplicata(dadosAba, categoria) {
+  const chaves = new Set();
+  if (!dadosAba || !dadosAba.headers || !dadosAba.rows) return chaves;
+  const { headers, rows } = dadosAba;
+
+  // localiza índices das colunas-chave usando match flexível de nome
+  const normHdr = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
+  let idxLoja = -1, idxNF = -1, idxCNPJ = -1, idxEmpresa = -1;
+  headers.forEach((h, i) => {
+    const n = normHdr(h);
+    if (idxLoja    < 0 && /\bLOJA\b/.test(n)) idxLoja = i;
+    if (idxNF      < 0 && /\bNF\b|NOTA\s*FISCAL|NOTAS\s*FISCAIS|NUMERO|FATURA/.test(n)) idxNF = i;
+    if (idxCNPJ    < 0 && /CNPJ/.test(n))     idxCNPJ = i;
+    if (idxEmpresa < 0 && /EMPRESA|EMITENTE|FORNECEDOR/.test(n)) idxEmpresa = i;
+  });
+
+  // Fallback por categoria:
+  //   - GÁS: A=Loja(0), G=NF(6), N=CNPJ(13)
+  //   - ENERGIA: A=Loja(0), H=NF(7), C=Empresa(2) — sem CNPJ na aba
+  if (categoria === 'energia') {
+    if (idxLoja    < 0) idxLoja = 0;
+    if (idxNF      < 0) idxNF = 7;
+    if (idxEmpresa < 0) idxEmpresa = 2;
+  } else {
+    if (idxLoja < 0) idxLoja = 0;
+    if (idxNF   < 0) idxNF   = 6;
+    if (idxCNPJ < 0) idxCNPJ = 13;
+  }
+
+  // Para energia, como não há CNPJ na planilha, usamos Empresa no lugar da CNPJ
+  // na chave — chaveDuplicata() normaliza qualquer string, então funciona igual.
+  const usarEmpresaComoTerceiroCampo = (categoria === 'energia' && idxCNPJ < 0);
+
+  for (const row of rows) {
+    const campo3 = usarEmpresaComoTerceiroCampo ? row[idxEmpresa] : row[idxCNPJ];
+    const chave = chaveDuplicata(row[idxNF], campo3, row[idxLoja]);
+    if (chave) chaves.add(chave);
+  }
+  return chaves;
+}
+
+// Mapeamentos de colunas por categoria — define em que coluna de QUAL aba da
+// planilha cada campo da NF-e é gravado. Também quais colunas são monitoradas
+// para detectar a "última linha com dado real" na aba.
+const MAPEAMENTOS = {
+  gas: {
+    abaAlvo: 'GAS',  // normalizado (sem acento)
+    // colunas usadas pra detectar última linha com dado
+    colsMonitor: ['A','E','G','H','I','J','N'],
+    // funções que preenchem as células (col → valor) — recebem a nota + mesRef + diaRef
+    preencher: (nota, ctx) => {
+      const out = {};
+      const mesRef = ctx.mesRef, diaRef = ctx.diaRef;
+      const { paraNumero, paraData, dataParaSerial, soDigitos, fmtCNPJ } = ctx.utils;
+      out.A = { tipo: 's', valor: nota['Loja'] };
+      out.E = { tipo: 'n', valor: paraNumero(nota['Quantidade Total']) };
+      const nf = paraNumero(nota['Numero NF']);
+      if (nf !== null) out.G = { tipo: 'n', valor: nf };
+      else             out.G = { tipo: 's', valor: nota['Numero NF'] };
+      const emissao = paraData(nota['Data Emissão']);
+      if (emissao) out.H = { tipo: 'n', valor: dataParaSerial(emissao) };
+      const vcto = paraData(nota['Vencimento']);
+      if (vcto) out.I = { tipo: 'n', valor: dataParaSerial(vcto) };
+      out.J = { tipo: 'n', valor: paraNumero(nota['V. Total NF']) };
+      if (mesRef != null && !isNaN(mesRef)) out.K = { tipo: 'n', valor: mesRef };
+      out.N = { tipo: 's', valor: fmtCNPJ(soDigitos(nota['CNPJ Emitente'])) };
+      if (diaRef != null && !isNaN(diaRef)) out.R = { tipo: 'n', valor: diaRef };
+      return out;
+    }
+  },
+  energia: {
+    abaAlvo: 'ENERGIA',
+    colsMonitor: ['A','C','H','J','K','L','M','N','O'],
+    // Mapeamento ENERGIA (marcado pelo usuário):
+    //   A=LOJA, C=EMPRESA (Nome Emitente), H=NOTA FISCAL, J=EMISSÃO, K=VENCIMENTO,
+    //   L=CONSUMO HFP, M=CONSUMO HP, N=TOTAL CONTA (V. Total NF),
+    //   O=MÊS REF., P=BOLETIM
+    preencher: (nota, ctx) => {
+      const out = {};
+      const mesRef = ctx.mesRef, diaRef = ctx.diaRef;
+      const { paraNumero, paraData, dataParaSerial } = ctx.utils;
+      out.A = { tipo: 's', valor: nota['Loja'] };
+      out.C = { tipo: 's', valor: nota['Nome Emitente'] };
+      const nf = paraNumero(nota['Numero NF']);
+      if (nf !== null) out.H = { tipo: 'n', valor: nf };
+      else             out.H = { tipo: 's', valor: nota['Numero NF'] };
+      const emissao = paraData(nota['Data Emissão']);
+      if (emissao) out.J = { tipo: 'n', valor: dataParaSerial(emissao) };
+      const vcto = paraData(nota['Vencimento']);
+      if (vcto) out.K = { tipo: 'n', valor: dataParaSerial(vcto) };
+      const hfp = paraNumero(nota['HFP']);
+      if (hfp != null) out.L = { tipo: 'n', valor: hfp };
+      const hp = paraNumero(nota['HP']);
+      if (hp != null)  out.M = { tipo: 'n', valor: hp };
+      out.N = { tipo: 'n', valor: paraNumero(nota['V. Total NF']) };
+      if (mesRef != null && !isNaN(mesRef)) out.O = { tipo: 'n', valor: mesRef };
+      if (diaRef != null && !isNaN(diaRef)) out.P = { tipo: 'n', valor: diaRef };
+      return out;
+    }
+  }
+};
+
+// ─── Lógica de edição do XML (funciona tanto pro modo direto quanto fallback) ───
+// Lê buffer do xlsx, adiciona as notas na aba da categoria e retorna {blob, inseridas}.
+// NÃO reprocessa fórmulas, validações ou formatação — só acrescenta linhas.
+async function processarXlsxGas(buffer, notas, opcoes) {
+  // opcoes = { mesRef, dia, categoria } — valores aplicados a todas as notas
+  opcoes = opcoes || {};
+  const mesRef = opcoes.mesRef != null ? Number(opcoes.mesRef) : null;
+  const diaRef = opcoes.dia    != null ? Number(opcoes.dia)    : null;
+  const categoria = opcoes.categoria || 'gas';
+  const mapa = MAPEAMENTOS[categoria];
+  if (!mapa) throw new Error(`Categoria desconhecida: ${categoria}`);
+  const zip = await JSZip.loadAsync(buffer);
+
+  const wbXmlFile = zip.file('xl/workbook.xml');
+  if (!wbXmlFile) throw new Error('workbook.xml não encontrado.');
+  const wbXml = await wbXmlFile.async('string');
+
+  const normalizar = s => (s || '').toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
+  const sheetMatches = [...wbXml.matchAll(/<sheet\b[^>]*\bname="([^"]+)"[^>]*\br:id="([^"]+)"[^>]*\/?>/g)];
+  const alvoNorm = normalizar(mapa.abaAlvo);
+  const gasSheet = sheetMatches.find(m => normalizar(m[1]) === alvoNorm);
+  if (!gasSheet) {
+    throw new Error(`Aba "${mapa.abaAlvo}" não encontrada. Abas: ${sheetMatches.map(m => m[1]).join(', ')}`);
+  }
+  const rId = gasSheet[2];
+
+  const relsFile = zip.file('xl/_rels/workbook.xml.rels');
+  if (!relsFile) throw new Error('_rels/workbook.xml.rels não encontrado.');
+  const relsXml = await relsFile.async('string');
+  const relMatch = new RegExp(`<Relationship\\b[^>]*\\bId="${rId}"[^>]*\\bTarget="([^"]+)"`).exec(relsXml);
+  if (!relMatch) throw new Error(`Relação da aba ${mapa.abaAlvo} não encontrada.`);
+  let sheetPath = relMatch[1];
+  if (!sheetPath.startsWith('/')) sheetPath = 'xl/' + sheetPath.replace(/^\.\//, '');
+  else sheetPath = sheetPath.replace(/^\//, '');
+
+  const sheetFile = zip.file(sheetPath);
+  if (!sheetFile) throw new Error(`Arquivo da aba não encontrado: ${sheetPath}`);
+  const sheetXml = await sheetFile.async('string');
+
+  // shared strings
+  let sstXml = '';
+  let sstFile = zip.file('xl/sharedStrings.xml');
+  let sstCount = 0, sstUnique = 0;
+  let sstItems = [];
+  const sstIndex = new Map();
+
+  if (sstFile) {
+    sstXml = await sstFile.async('string');
+    const cntMatch  = /count="(\d+)"/.exec(sstXml);
+    const uniqMatch = /uniqueCount="(\d+)"/.exec(sstXml);
+    sstCount  = cntMatch  ? parseInt(cntMatch[1], 10)  : 0;
+    sstUnique = uniqMatch ? parseInt(uniqMatch[1], 10) : 0;
+    const siMatches = [...sstXml.matchAll(/<si\b[^>]*>([\s\S]*?)<\/si>/g)];
+    siMatches.forEach((m, idx) => {
+      const tMatch = /<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/.exec(m[1]);
+      if (tMatch && !/<r\b/.test(m[1])) {
+        const txt = tMatch[1].replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&amp;/g,'&');
+        if (!sstIndex.has(txt)) sstIndex.set(txt, idx);
+      }
+    });
+    if (sstUnique === 0) sstUnique = sstIndex.size;
+  }
+
+  const encodeXml = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&apos;');
+  const getSstIndex = text => {
+    const t = String(text);
+    if (sstIndex.has(t)) return sstIndex.get(t);
+    const newIdx = sstUnique + sstItems.length;
+    sstItems.push(t);
+    sstIndex.set(t, newIdx);
+    return newIdx;
+  };
+
+  // ─── detecta última linha com CONTEÚDO REAL ───
+  // Não conta linhas "fantasma" que só carregam estilo, validação de dados,
+  // formatação condicional ou altura customizada — só quem tem célula com valor.
+  // Colunas monitoradas vêm do mapeamento da categoria ativa.
+  const COLS_GRAVADAS = new Set(mapa.colsMonitor);
+  let ultimaLinhaComDados = 1;
+  // varre cada <c r="XX999" ...>...</c> e verifica se tem <v> ou <t> com conteúdo
+  const cellRegex = /<c\b[^>]*\br="([A-Z]+)(\d+)"[^>]*?(\/>|>([\s\S]*?)<\/c>)/g;
+  let mc;
+  while ((mc = cellRegex.exec(sheetXml)) !== null) {
+    const col = mc[1];
+    const linha = parseInt(mc[2], 10);
+    const selfClosing = mc[3] === '/>';
+    const conteudo = selfClosing ? '' : (mc[4] || '');
+    // considera "com dado" se tem <v>algo</v> não vazio ou <t>algo</t> não vazio
+    const temValor = /<v>\s*[^<\s]/.test(conteudo) || /<t[^>]*>\s*[^<\s]/.test(conteudo);
+    if (temValor && COLS_GRAVADAS.has(col) && linha > ultimaLinhaComDados) {
+      ultimaLinhaComDados = linha;
+    }
+  }
+  let proximaLinha = Math.max(ultimaLinhaComDados + 1, 2);
+
+  const paraData = v => {
+    if (!v) return null;
+    if (v instanceof Date) return v;
+    const s = String(v).trim();
+    let m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+    if (m) {
+      let [, d, mo, y] = m;
+      if (y.length === 2) y = '20' + y;
+      const dt = new Date(Number(y), Number(mo) - 1, Number(d));
+      return isNaN(dt.getTime()) ? null : dt;
+    }
+    m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (m) {
+      const dt = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+      return isNaN(dt.getTime()) ? null : dt;
+    }
+    const dt = new Date(s);
+    return isNaN(dt.getTime()) ? null : dt;
+  };
+  const paraNumero = v => {
+    if (v === null || v === undefined || v === '') return null;
+    if (typeof v === 'number') return v;
+    const n = Number(String(v).replace(/\./g, '').replace(',', '.'));
+    return isNaN(n) ? null : n;
+  };
+  const dataParaSerial = dt => (dt.getTime() - new Date(1899, 11, 30).getTime()) / 86400000;
+
+  const colLetra = n => {
+    let s = '';
+    while (n > 0) { const r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = Math.floor((n - 1) / 26); }
+    return s;
+  };
+  const letraParaCol = L => {
+    let n = 0;
+    for (const ch of L) n = n * 26 + (ch.charCodeAt(0) - 64);
+    return n;
+  };
+
+  // ─────────────────────────────────────────────────────────────────
+  // IMPORTANTE: não criamos novas <row>, não mexemos em <dimension>,
+  // <dataValidations>, <mergeCells> ou qualquer outra estrutura.
+  // Só escrevemos VALORES dentro das células que já existem nas <row>
+  // existentes (preenchimento/formatação vai até a linha 2000).
+  // Equivalente a Ctrl+Shift+V ("Colar Valores") no Excel.
+  // ─────────────────────────────────────────────────────────────────
+
+  // Para cada nota, monta um dicionário {coluna → {tipo, valor}} — NÃO gera XML ainda,
+  // porque precisa escrever dentro das células existentes preservando atributos.
+  const gravacoesPorLinha = new Map(); // r → {coluna: {tipo:'s'|'n', valor}}
+  let inseridas = 0;
+
+  // ctx repassado ao mapeamento da categoria (evita acoplar a função ao escopo)
+  const ctxPreencher = {
+    mesRef,
+    diaRef,
+    utils: { paraNumero, paraData, dataParaSerial, soDigitos, fmtCNPJ }
+  };
+
+  for (const nota of notas) {
+    const r = proximaLinha;
+    const grav = {};
+
+    // chama o mapeamento da categoria — retorna { colLetra: { tipo, valor } }
+    const preenchimentoBruto = mapa.preencher(nota, ctxPreencher);
+
+    // converte o preenchimento bruto (valores "crus") pro formato interno:
+    //   strings entram no sharedStrings (getSstIndex), números viram String(valor)
+    for (const [col, info] of Object.entries(preenchimentoBruto)) {
+      const v = info.valor;
+      if (v === null || v === undefined || v === '') continue;
+      if (info.tipo === 's') {
+        const idx = getSstIndex(String(v));
+        grav[col] = { tipo: 's', valor: String(idx) };
+      } else {
+        // número
+        if (isNaN(v)) continue;
+        grav[col] = { tipo: 'n', valor: String(v) };
+      }
+    }
+
+    if (Object.keys(grav).length) {
+      gravacoesPorLinha.set(r, grav);
+      inseridas++;
+    }
+    proximaLinha++;
+  }
+
+  if (!inseridas) return { blob: null, inseridas: 0 };
+
+  // ─── Grava dentro das <row> existentes, sem alterar estrutura ───
+  let novoSheetXml = sheetXml;
+  const numerosOrdenados = [...gravacoesPorLinha.keys()].sort((a, b) => a - b);
+  let linhasSemRow = [];
+
+  for (const r of numerosOrdenados) {
+    const grav = gravacoesPorLinha.get(r);
+
+    // localiza a <row r="N"> existente (auto-fechada ou não)
+    const rowAutoRegex = new RegExp(`<row\\b([^>]*?)\\br="${r}"([^>]*?)/>`);
+    const rowFullRegex = new RegExp(`(<row\\b[^>]*?\\br="${r}"[^>]*?>)([\\s\\S]*?)(</row>)`);
+
+    const matchAuto = rowAutoRegex.exec(novoSheetXml);
+    const matchFull = rowFullRegex.exec(novoSheetXml);
+
+    let rowInteriorAtual = '';
+    let rowAberturaAtual = '';
+    let usandoAuto = false;
+
+    if (matchAuto && (!matchFull || matchAuto.index <= matchFull.index)) {
+      // row auto-fechada: reconstrói a abertura preservando atributos.
+      // Junta os dois grupos e normaliza whitespace pra evitar atributos colados.
+      const attrsRaw = (matchAuto[1] + ' ' + matchAuto[2]).replace(/\s+/g, ' ').trim();
+      rowAberturaAtual = attrsRaw ? `<row ${attrsRaw} r="${r}">` : `<row r="${r}">`;
+      rowInteriorAtual = '';
+      usandoAuto = true;
+    } else if (matchFull) {
+      rowAberturaAtual = matchFull[1];
+      rowInteriorAtual = matchFull[2];
+    } else {
+      // row NÃO existe — por regra, não podemos criar.
+      linhasSemRow.push(r);
+      continue;
+    }
+
+    // ─── Helper: reescreve uma célula preservando atributos via parsing seguro ───
+    // Parse dos atributos em um Map {nome → valor}, aplica mudanças, reserializa
+    // com espaçamento consistente. Evita bugs de concatenação do tipo s="1"r="A560".
+    const parseAttrs = (attrString) => {
+      const attrs = new Map();
+      const re = /([a-zA-Z_:][\w:.-]*)\s*=\s*"([^"]*)"/g;
+      let m;
+      while ((m = re.exec(attrString || '')) !== null) {
+        attrs.set(m[1], m[2]);
+      }
+      return attrs;
+    };
+    const serializeAttrs = (attrs) => {
+      // ordem canônica: r primeiro (convenção do OOXML), depois os demais
+      const ordem = ['r', 's', 't'];
+      const usadas = new Set();
+      const partes = [];
+      for (const k of ordem) {
+        if (attrs.has(k)) {
+          partes.push(`${k}="${attrs.get(k)}"`);
+          usadas.add(k);
+        }
+      }
+      for (const [k, v] of attrs) {
+        if (!usadas.has(k)) partes.push(`${k}="${v}"`);
+      }
+      return partes.join(' ');
+    };
+
+    // para cada coluna que precisa gravar
+    let novoInterior = rowInteriorAtual;
+    for (const [col, dado] of Object.entries(grav)) {
+      const ref = `${col}${r}`;
+
+      // captura célula existente: tudo entre <c ... e /> ou </c>
+      const cellAutoRegex = new RegExp(`<c\\b([^>]*?)\\br="${ref}"([^>]*?)\\s*/>`);
+      const cellFullRegex = new RegExp(`<c\\b([^>]*?)\\br="${ref}"([^>]*?)>([\\s\\S]*?)</c>`);
+
+      const mAuto = cellAutoRegex.exec(novoInterior);
+      const mFull = cellFullRegex.exec(novoInterior);
+
+      const miolo = `<v>${dado.valor}</v>`;
+      let attrs;
+      let matchPosicao, matchTamanho;
+
+      if (mAuto && (!mFull || mAuto.index <= mFull.index)) {
+        attrs = parseAttrs(mAuto[1] + ' ' + mAuto[2]);
+        matchPosicao = mAuto.index;
+        matchTamanho = mAuto[0].length;
+      } else if (mFull) {
+        attrs = parseAttrs(mFull[1] + ' ' + mFull[2]);
+        matchPosicao = mFull.index;
+        matchTamanho = mFull[0].length;
+      } else {
+        // célula não existe na row → adiciona no final, SEM s="..."
+        // (herda formatação da coluna)
+        const newAttrs = new Map();
+        newAttrs.set('r', ref);
+        if (dado.tipo === 's') newAttrs.set('t', 's');
+        novoInterior += `<c ${serializeAttrs(newAttrs)}>${miolo}</c>`;
+        continue;
+      }
+
+      // garante r="..." correto
+      attrs.set('r', ref);
+      // ajusta tipo: string precisa t="s", número remove t="..."
+      if (dado.tipo === 's') {
+        attrs.set('t', 's');
+      } else {
+        attrs.delete('t');
+      }
+      // preserva s="..." (estilo/formatação) e qualquer outro atributo existente
+
+      const novaCell = `<c ${serializeAttrs(attrs)}>${miolo}</c>`;
+      novoInterior = novoInterior.slice(0, matchPosicao)
+                   + novaCell
+                   + novoInterior.slice(matchPosicao + matchTamanho);
+    }
+
+    // substitui a row antiga pela versão atualizada
+    if (usandoAuto) {
+      novoSheetXml = novoSheetXml.replace(matchAuto[0], rowAberturaAtual + novoInterior + '</row>');
+    } else {
+      novoSheetXml = novoSheetXml.replace(matchFull[0], rowAberturaAtual + novoInterior + '</row>');
+    }
+  }
+
+  // se alguma linha não tinha <row> existente, reduz a contagem
+  if (linhasSemRow.length) {
+    inseridas -= linhasSemRow.length;
+    console.warn(`Linhas sem <row> existente (ignoradas): ${linhasSemRow.join(', ')}`);
+    if (inseridas <= 0) return { blob: null, inseridas: 0, linhasSemRow };
+  }
+
+  // ─── VALIDAÇÃO XML ESTRITA antes de gravar ───
+  // Se o XML gerado não parsear, ABORTA sem escrever nada.
+  // Usa DOMParser (navegador) ou joga erro se não disponível.
+  if (typeof DOMParser !== 'undefined') {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(novoSheetXml, 'application/xml');
+    const parseError = doc.querySelector('parsererror');
+    if (parseError) {
+      throw new Error('XML gerado inválido - arquivo NÃO foi modificado. Detalhe: ' + parseError.textContent.slice(0, 200));
+    }
+  }
+  // Sanidade adicional: não pode haver '"' seguido de letra sem espaço em atributos
+  // (padrão típico de atributos colados tipo s="1"r="A560")
+  const colagem = /"[a-zA-Z_]+\s*=/.exec(novoSheetXml);
+  if (colagem) {
+    throw new Error('XML tem atributos colados sem espaço - arquivo NÃO foi modificado. Trecho: ' + novoSheetXml.slice(Math.max(0, colagem.index - 30), colagem.index + 30));
+  }
+
+  // NÃO atualizamos <dimension> — a estrutura original já cobre o range
+  zip.file(sheetPath, novoSheetXml);
+
+  // ─── Força recálculo de fórmulas ao abrir ───
+  // Gravamos valores nas colunas A/E/G/H/I/J/K/N/R. Células com fórmula (B/C/D/F/L/M/O/P/Q
+  // etc.) que dependem dessas colunas ficam com <v> em cache desatualizado.
+  // NÃO calculamos as fórmulas aqui — apenas marcamos o workbook pra que o EXCEL
+  // recalcule tudo na próxima abertura:
+  //   1) forceFullCalcOnLoad="1" em <calcPr> → Excel ignora o cache e recalcula tudo
+  //   2) Remove calcChain.xml → força Excel a reconstruir a cadeia de dependências
+
+  // 1) workbook.xml → injeta forceFullCalcOnLoad="1" e fullCalcOnLoad="1" em <calcPr>
+  const wbFile = zip.file('xl/workbook.xml');
+  if (wbFile) {
+    let wbNovo = await wbFile.async('string');
+    if (/<calcPr\b[^>]*\/>/.test(wbNovo)) {
+      wbNovo = wbNovo.replace(/<calcPr\b([^>]*?)\/>/, (_m, attrs) => {
+        let limpo = attrs.replace(/\s+(?:forceFullCalcOnLoad|fullCalcOnLoad)="[^"]*"/g, '');
+        return `<calcPr${limpo} forceFullCalcOnLoad="1" fullCalcOnLoad="1"/>`;
+      });
+    } else if (/<calcPr\b[^>]*>[\s\S]*?<\/calcPr>/.test(wbNovo)) {
+      wbNovo = wbNovo.replace(/<calcPr\b([^>]*?)>/, (_m, attrs) => {
+        let limpo = attrs.replace(/\s+(?:forceFullCalcOnLoad|fullCalcOnLoad)="[^"]*"/g, '');
+        return `<calcPr${limpo} forceFullCalcOnLoad="1" fullCalcOnLoad="1">`;
+      });
+    } else {
+      wbNovo = wbNovo.replace(/<\/workbook>/, '<calcPr forceFullCalcOnLoad="1" fullCalcOnLoad="1"/></workbook>');
+    }
+    zip.file('xl/workbook.xml', wbNovo);
+  }
+
+  // 2) Remove calcChain.xml → o Excel reconstrói a cadeia na abertura
+  if (zip.file('xl/calcChain.xml')) {
+    zip.remove('xl/calcChain.xml');
+    const ctFile2 = zip.file('[Content_Types].xml');
+    if (ctFile2) {
+      let ct = await ctFile2.async('string');
+      // regex aceita `/` dentro de atributos (ex: ContentType="application/...")
+      ct = ct.replace(/<Override\s+PartName="\/xl\/calcChain\.xml"[^>]*\/>\s*/g, '');
+      zip.file('[Content_Types].xml', ct);
+    }
+    const wbRelsFile = zip.file('xl/_rels/workbook.xml.rels');
+    if (wbRelsFile) {
+      let wbRels = await wbRelsFile.async('string');
+      wbRels = wbRels.replace(/<Relationship\b[^>]*Target="calcChain\.xml"[^>]*\/>\s*/g, '');
+      zip.file('xl/_rels/workbook.xml.rels', wbRels);
+    }
+  }
+
+  // atualiza sharedStrings
+  if (sstItems.length) {
+    const novasSiXml = sstItems.map(t => `<si><t xml:space="preserve">${encodeXml(t)}</t></si>`).join('');
+    if (sstFile) {
+      let novoSst = sstXml;
+      const novoTotal  = sstCount  + sstItems.length;
+      const novoUnique = sstUnique + sstItems.length;
+      novoSst = novoSst.replace(/(<sst\b[^>]*?)count="\d+"/,       `$1count="${novoTotal}"`);
+      novoSst = novoSst.replace(/(<sst\b[^>]*?)uniqueCount="\d+"/, `$1uniqueCount="${novoUnique}"`);
+      if (!/count="/.test(novoSst)) {
+        novoSst = novoSst.replace(/<sst\b([^>]*)>/, `<sst$1 count="${novoTotal}" uniqueCount="${novoUnique}">`);
+      }
+      novoSst = novoSst.replace(/<\/sst>/, `${novasSiXml}</sst>`);
+      zip.file('xl/sharedStrings.xml', novoSst);
+    } else {
+      const novoSst = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="${sstItems.length}" uniqueCount="${sstItems.length}">${novasSiXml}</sst>`;
+      zip.file('xl/sharedStrings.xml', novoSst);
+      const ctFile = zip.file('[Content_Types].xml');
+      if (ctFile) {
+        let ct = await ctFile.async('string');
+        if (!ct.includes('sharedStrings.xml')) {
+          ct = ct.replace('</Types>', '<Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/></Types>');
+          zip.file('[Content_Types].xml', ct);
+        }
+      }
+      let rels2 = await zip.file('xl/_rels/workbook.xml.rels').async('string');
+      if (!rels2.includes('sharedStrings.xml')) {
+        const nextId = 'rIdSst' + Date.now();
+        rels2 = rels2.replace('</Relationships>', `<Relationship Id="${nextId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/></Relationships>`);
+        zip.file('xl/_rels/workbook.xml.rels', rels2);
+      }
+    }
+  }
+
+  const blob = await zip.generateAsync({
+    type: 'blob',
+    mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    compression: 'DEFLATE'
+  });
+
+  return { blob, inseridas };
+}
+
+// inicializa UI de vínculo no carregamento
+document.addEventListener('DOMContentLoaded', () => {
+  atualizarUiVinculoGas();
+  // se navegador não suporta, esconde o botão e avisa
+  if (!suportaFileSystemAccess()) {
+    const btn = document.getElementById('btn-vincular-gas');
+    if (btn) {
+      btn.title = 'Requer Chrome ou Edge';
+      btn.style.opacity = '0.5';
+    }
+  }
+});
+
+
 </script>
 </body>
 </html>
