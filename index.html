@@ -9,6 +9,36 @@
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
+<script>
+// Fallback CDNs se o cdnjs falhar (bloqueio corporativo, rede instável)
+(function() {
+  function loadScript(src, name) {
+    return new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = src;
+      s.onload = () => { console.log('[CDN fallback] carregado:', name); resolve(); };
+      s.onerror = () => reject(new Error('falha em ' + src));
+      document.head.appendChild(s);
+    });
+  }
+  window.addEventListener('load', async () => {
+    if (typeof JsBarcode === 'undefined') {
+      console.warn('[DANFE] JsBarcode do cdnjs falhou — tentando jsdelivr');
+      try {
+        await loadScript('https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js', 'jsbarcode');
+      } catch (e) { console.error('[DANFE] Fallback do jsbarcode também falhou:', e); }
+    }
+    if (typeof window.jspdf === 'undefined') {
+      console.warn('[DANFE] jsPDF do cdnjs falhou — tentando jsdelivr');
+      try {
+        await loadScript('https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js', 'jspdf');
+      } catch (e) { console.error('[DANFE] Fallback do jsPDF também falhou:', e); }
+    }
+  });
+})();
+</script>
 <style>
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -502,6 +532,7 @@ tbody td.td-hfp   { color: var(--warm);  font-weight: 600; font-variant-numeric:
         <span class="record-count" id="count-dados">0 registros</span>
         <button class="btn-sm" id="btn-restaurar-dados" onclick="restaurarNotasDados()" style="display:none;border-color:var(--warm);color:var(--warm);" title="Restaurar notas excluídas da visão">↩ restaurar <span id="count-restaurar-dados">0</span></button>
         <button class="btn-sm" onclick="exportarAba('dados')">⬇ exportar aba</button>
+        <button class="btn-sm" id="btn-gerar-danfe" onclick="gerarDanfesFiltradas()" style="border-color:var(--neon2);color:var(--neon2);" title="Gerar PDF com todas as DANFEs das notas filtradas">🖨 gerar DANFEs</button>
         <button class="btn-sm" id="btn-vincular-gas" onclick="vincularPlanilhaGas()" style="border-color:var(--warm);color:var(--warm);">📎 vincular CONTROLE.xlsx</button>
         <button class="btn-sm" id="btn-integrar-gas" onclick="integrarPlanilhaGasDireto()" style="border-color:var(--mint);color:var(--mint);display:none;">⚡ integrar direto</button>
         <button class="btn-sm" id="btn-desvincular-gas" onclick="desvincularPlanilhaGas()" style="display:none;" title="Desvincular arquivo">✕</button>
@@ -570,11 +601,14 @@ const _u = [
   {u:'wenfranca', p:'@#7263Wf'},
   {u:'gisdias',   p:'@#1234Gd'}
 ];
+let usuarioLogado = '';  // definido após login bem-sucedido
+
 function doLogin() {
   const u = document.getElementById('login-user').value.trim();
   const p = document.getElementById('login-pass').value;
   const ok = _u.find(x => x.u === u && x.p === p);
   if (ok) {
+    usuarioLogado = u;
     document.getElementById('login-overlay').classList.add('hidden');
   } else {
     const err = document.getElementById('login-err');
@@ -781,7 +815,8 @@ async function handleFiles(files) {
         'HP':                    modelo==='NF3-e' ? qtdHP  : null,
         'HFP':                   modelo==='NF3-e' ? qtdHFP : null,
         'Quantidade Total':      qtdTotal,
-        'V. Total NF':           totalNF
+        'V. Total NF':           totalNF,
+        'xmlRaw':                text  // preservado para geração de DANFE
       });
       added++;
     } catch(e) { errors++; }
@@ -1015,6 +1050,14 @@ function mudarCategoriaDados() {
   categoriaDados = sel.value;
   renderDados();
   updateKPIs();
+  atualizarBotaoDanfe();
+}
+
+// Esconde o botão DANFE em Energia (só NF-e modelo 55 é suportada)
+function atualizarBotaoDanfe() {
+  const btn = document.getElementById('btn-gerar-danfe');
+  if (!btn) return;
+  btn.style.display = (categoriaDados === 'energia') ? 'none' : '';
 }
 
 // ─── Exclusão de notas da visão atual (aba Dados) ───
@@ -1173,6 +1216,8 @@ document.addEventListener('DOMContentLoaded', () => {
   if (overlay) overlay.addEventListener('click', e => { if (e.target === overlay) fecharModalGas(); });
   // reflete os CNPJs pré-cadastrados na UI assim que a página carrega
   atualizarInfoCadastro();
+  // ajusta visibilidade do botão DANFE conforme categoria inicial
+  atualizarBotaoDanfe();
 });
 
 // remove espaços invisíveis de campos de texto (espaço normal, NBSP \u00A0, tabs, quebras de linha)
@@ -1190,7 +1235,7 @@ function limparLinha(obj) {
 function exportarXlsx() {
   if(!dbNF.length){setStatus('Nada para exportar.','err');return;}
   const wb=XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(dbNF.map(r=>limparLinha({...r,Chave:undefined}))),'Base Completa');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(dbNF.map(r=>limparLinha({...r,Chave:undefined,xmlRaw:undefined}))),'Base Completa');
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(dbItens.map(limparLinha)),'Itens');
   XLSX.writeFile(wb,'notas_historico.xlsx');
   setStatus('Exportado com sucesso.','ok');
@@ -1198,7 +1243,7 @@ function exportarXlsx() {
 function exportarAba(which) {
   let data, sheet;
   if (which === 'nf') {
-    data = dbNF.map(r => ({...r, Chave: undefined}));
+    data = dbNF.map(r => ({...r, Chave: undefined, xmlRaw: undefined}));
     sheet = 'Base Completa';
   } else if (which === 'itens') {
     data = dbNF.map(r => ({'Loja':r['Loja'],'Empresa':r['Nome Emitente'],'NF':r['Numero NF'],'Emissão':r['Data Emissão'],'Vencimento':r['Vencimento'],'Total':r['Quantidade Total'],'Total Conta':r['V. Total NF']}));
@@ -2221,6 +2266,990 @@ async function processarXlsxGas(buffer, notas, opcoes) {
   });
 
   return { blob, inseridas };
+}
+
+// ═══════════════════════════════════════════════════════════
+// ── GERAÇÃO DE DANFE (NF-e modelo 55) ──
+// ═══════════════════════════════════════════════════════════
+// Gera um PDF único com uma página por nota.
+// Layout simplificado mas completo: emitente, destinatário, chave de acesso
+// com código de barras, itens, totais, duplicatas, info complementares.
+// NÃO é idêntico ao padrão SEFAZ pixel-por-pixel — é uma versão operacional.
+
+// Extrai todos os campos necessários do XML de uma NF-e modelo 55
+function extrairDadosDanfe(xmlStr) {
+  const doc = new DOMParser().parseFromString(xmlStr, 'application/xml');
+  if (doc.querySelector('parsererror')) throw new Error('XML inválido');
+
+  // ─── helpers namespace-safe ───
+  // querySelector falha com XML que tem namespace (xmlns="..."). getElementsByTagName
+  // retorna elementos ignorando namespace — usa isso como base.
+  const findFirst = (tag, ctx) => {
+    const nodes = (ctx || doc).getElementsByTagName(tag);
+    return nodes.length ? nodes[0] : null;
+  };
+  const g = (sel, ctx) => {
+    // sel pode ser "tag" ou "pai > filho" (pega o primeiro filho sob o primeiro pai)
+    const parts = sel.split('>').map(s => s.trim());
+    let el = ctx || doc;
+    for (const p of parts) {
+      el = findFirst(p, el);
+      if (!el) return '';
+    }
+    return el.textContent.trim();
+  };
+  const gN = (sel, ctx) => {
+    const v = g(sel, ctx);
+    return v ? parseFloat(v) : 0;
+  };
+
+  // chave de acesso
+  const infEl = findFirst('infNFe');
+  let chave = infEl ? (infEl.getAttribute('Id') || '').replace(/^NFe/i, '') : '';
+  if (!chave) chave = g('chNFe') || '';
+  // segurança: só dígitos
+  chave = chave.replace(/\D/g, '');
+
+  // dados gerais
+  const ide = findFirst('ide');
+  const dados = {
+    chave: chave,
+    numero: g('nNF', ide),
+    serie: g('serie', ide),
+    dataEmissao: g('dhEmi', ide).substring(0, 10),
+    horaEmissao: g('dhEmi', ide).substring(11, 19),
+    natureza: g('natOp', ide),
+    tipoOp: g('tpNF', ide) === '1' ? 'SAÍDA' : 'ENTRADA',
+    finNFe: g('finNFe', ide), // 1=normal, 2=complementar, 3=ajuste, 4=devolução
+    protocolo: g('infProt > nProt') || '',
+    dhProt: (g('infProt > dhRecbto') || '').substring(0, 19).replace('T', ' ')
+  };
+
+  // emitente
+  const emit = findFirst('emit');
+  dados.emit = {
+    cnpj: g('CNPJ', emit) || g('CPF', emit),
+    nome: g('xNome', emit),
+    fant: g('xFant', emit),
+    ie: g('IE', emit),
+    endereco: g('enderEmit > xLgr', doc) + ', ' + g('enderEmit > nro', doc) +
+              (g('enderEmit > xCpl', doc) ? ' - ' + g('enderEmit > xCpl', doc) : ''),
+    bairro: g('enderEmit > xBairro', doc),
+    municipio: g('enderEmit > xMun', doc),
+    uf: g('enderEmit > UF', doc),
+    cep: g('enderEmit > CEP', doc),
+    fone: g('enderEmit > fone', doc)
+  };
+
+  // destinatário
+  const dest = findFirst('dest');
+  dados.dest = {
+    cnpjCpf: g('CNPJ', dest) || g('CPF', dest),
+    nome: g('xNome', dest),
+    ie: g('IE', dest),
+    endereco: g('enderDest > xLgr', doc) + ', ' + g('enderDest > nro', doc) +
+              (g('enderDest > xCpl', doc) ? ' - ' + g('enderDest > xCpl', doc) : ''),
+    bairro: g('enderDest > xBairro', doc),
+    municipio: g('enderDest > xMun', doc),
+    uf: g('enderDest > UF', doc),
+    cep: g('enderDest > CEP', doc),
+    fone: g('enderDest > fone', doc)
+  };
+
+  // itens
+  dados.itens = [];
+  const dets = doc.getElementsByTagName('det');
+  for (const det of dets) {
+    const nItem = det.getAttribute('nItem') || '';
+    const prod = findFirst('prod', det);
+    const imposto = findFirst('imposto', det);
+    // ICMS pode vir em variantes ICMS00, ICMS10, etc.
+    // Pega o primeiro filho de <ICMS>
+    const icmsGroup = imposto ? findFirst('ICMS', imposto) : null;
+    const icmsEl = icmsGroup && icmsGroup.firstElementChild ? icmsGroup.firstElementChild : null;
+
+    dados.itens.push({
+      nItem,
+      codigo: g('cProd', prod),
+      ean: g('cEAN', prod),
+      descricao: g('xProd', prod),
+      ncm: g('NCM', prod),
+      cst: icmsEl ? g('CST', icmsEl) || g('CSOSN', icmsEl) : '',
+      cfop: g('CFOP', prod),
+      unid: g('uCom', prod),
+      qtd: gN('qCom', prod),
+      vUnit: gN('vUnCom', prod),
+      vTotal: gN('vProd', prod),
+      vDesconto: gN('vDesc', prod),
+      baseICMS: icmsEl ? gN('vBC', icmsEl) : 0,
+      vICMS: icmsEl ? gN('vICMS', icmsEl) : 0,
+      alqICMS: icmsEl ? gN('pICMS', icmsEl) : 0,
+      vIPI: gN('IPI > IPITrib > vIPI', det) || 0,
+      alqIPI: gN('IPI > IPITrib > pIPI', det) || 0
+    });
+  }
+
+  // totais
+  const tot = findFirst('ICMSTot');
+  dados.tot = {
+    vBC:       gN('vBC', tot),
+    vICMS:     gN('vICMS', tot),
+    vBCST:     gN('vBCST', tot),
+    vST:       gN('vST', tot),
+    vProd:     gN('vProd', tot),
+    vFrete:    gN('vFrete', tot),
+    vSeg:      gN('vSeg', tot),
+    vDesc:     gN('vDesc', tot),
+    vII:       gN('vII', tot),
+    vIPI:      gN('vIPI', tot),
+    vPIS:      gN('vPIS', tot),
+    vCOFINS:   gN('vCOFINS', tot),
+    vOutro:    gN('vOutro', tot),
+    vNF:       gN('vNF', tot)
+  };
+
+  // transportador
+  const transp = findFirst('transp');
+  dados.transp = {
+    modFrete: g('modFrete', transp),
+    transportadora: g('transporta > xNome', transp) || '',
+    cnpjTransp: g('transporta > CNPJ', transp) || g('transporta > CPF', transp) || '',
+    ieTransp: g('transporta > IE', transp) || '',
+    placa: g('veicTransp > placa', transp) || '',
+    ufVeic: g('veicTransp > UF', transp) || '',
+    qtdVol: gN('vol > qVol', transp),
+    pesoBr: gN('vol > pesoB', transp),
+    pesoLiq: gN('vol > pesoL', transp),
+    especie: g('vol > esp', transp) || ''
+  };
+
+  // duplicatas (cobrança)
+  dados.dups = [];
+  const cobrEl = findFirst('cobr');
+  if (cobrEl) {
+    for (const dup of cobrEl.getElementsByTagName('dup')) {
+      dados.dups.push({
+        num: g('nDup', dup),
+        venc: g('dVenc', dup),
+        valor: gN('vDup', dup)
+      });
+    }
+  }
+
+  // informações complementares
+  dados.infCpl = g('infAdic > infCpl') || '';
+  dados.infAdFisco = g('infAdic > infAdFisco') || '';
+
+  return dados;
+}
+
+// Formata chave de acesso 44 dígitos com espaços a cada 4
+function fmtChave(c) {
+  if (!c) return '';
+  return c.replace(/(\d{4})(?=\d)/g, '$1 ');
+}
+
+// Gera código de barras Code 128 da chave de acesso como Data URL (PNG)
+function gerarCodigoBarras(chave) {
+  if (typeof JsBarcode === 'undefined') {
+    console.warn('[DANFE] JsBarcode não carregada — verifique se o CDN https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js está acessível');
+    return null;
+  }
+  // Valida: precisa ter exatamente 44 dígitos
+  const limpa = String(chave || '').replace(/\D/g, '');
+  if (limpa.length !== 44) {
+    console.warn('[DANFE] Chave inválida para Code128C (esperado 44 dígitos, recebido ' + limpa.length + ')');
+    return null;
+  }
+
+  // Cria canvas ANEXADO ao DOM (invisível) — sem anexar, alguns browsers falham no toDataURL
+  const canvas = document.createElement('canvas');
+  canvas.width = 720;   // dimensão suficiente pra 44 dígitos em Code128C
+  canvas.height = 80;
+  canvas.style.position = 'absolute';
+  canvas.style.left = '-9999px';
+  canvas.style.top = '-9999px';
+  canvas.style.visibility = 'hidden';
+  document.body.appendChild(canvas);
+
+  try {
+    JsBarcode(canvas, limpa, {
+      format: 'CODE128C',
+      width: 2,
+      height: 60,
+      displayValue: false,
+      margin: 0,
+      background: '#ffffff',
+      lineColor: '#000000'
+    });
+    const dataUrl = canvas.toDataURL('image/png');
+
+    if (!dataUrl || !dataUrl.startsWith('data:image/png') || dataUrl.length < 500) {
+      console.warn('[DANFE] Data URL do barcode parece inválida (tamanho=' + (dataUrl?.length || 0) + ')');
+      return null;
+    }
+    console.log('[DANFE] Barcode gerado OK, tamanho do PNG:', dataUrl.length, 'bytes');
+    return dataUrl;
+  } catch (e) {
+    console.warn('[DANFE] Falha ao gerar código de barras:', e.message || e);
+    return null;
+  } finally {
+    // limpa canvas do DOM
+    try { document.body.removeChild(canvas); } catch (_) {}
+  }
+}
+
+// Formata CNPJ ou CPF
+function fmtCnpjCpf(d) {
+  if (!d) return '';
+  const s = String(d).replace(/\D/g, '');
+  if (s.length === 14) return s.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5');
+  if (s.length === 11) return s.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+  return d;
+}
+
+// Formata CEP
+function fmtCep(c) {
+  if (!c) return '';
+  const s = String(c).replace(/\D/g, '');
+  if (s.length === 8) return s.replace(/(\d{5})(\d{3})/, '$1-$2');
+  return c;
+}
+
+// Formata data YYYY-MM-DD → DD/MM/YYYY
+function fmtDataDanfe(d) {
+  if (!d) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(d)) {
+    const [y,m,dd] = d.split('-');
+    return `${dd}/${m}/${y}`;
+  }
+  return d;
+}
+
+// Desenha UMA DANFE na página atual do jsPDF, seguindo layout oficial da SEFAZ
+// Modelo oficial: cabeçalho 3 colunas, destinatário, fatura, cálculo imposto,
+// transportador, tabela de produtos, ISSQN, informações complementares.
+function desenharDanfe(pdf, d) {
+  // A4: 210 × 297 mm. Margens de 5mm → área útil 200 × 287.
+  const M = 5;
+  const W = 210 - 2 * M; // 200
+  const PAGE_H = 297;
+  let y = M;
+
+  // ───────── helpers de desenho ─────────
+  const rect = (x, yy, w, h) => pdf.rect(x, yy, w, h);
+  const line = (x1, y1, x2, y2) => pdf.line(x1, y1, x2, y2);
+  const txt = (s, x, yy, opts) => pdf.text(String(s == null ? '' : s), x, yy, opts);
+
+  // ───────── TAMANHOS PADRONIZADOS (baseados no modelo oficial SEFAZ) ─────────
+  const FZ = {
+    secao:     7,    // barra preta de seção (branco bold)
+    label:     5.5,  // label pequeno (acima do valor)
+    valor:     8,    // valor normal dos campos
+    valorBold: 8,    // valor em bold (ex: VALOR TOTAL DA NOTA)
+    prodHdr:   5,    // cabeçalho da tabela de produtos (bold)
+    prodLin:   7,    // linhas da tabela de produtos
+    danfe:     14,   // título "DANFE" centralizado
+    danfeSub:  7,    // "DOCUMENTO AUXILIAR..."
+    nNF:       10,   // Nº da NF
+    serie:     9,    // SÉRIE
+    chave:     7.5,  // chave de acesso formatada (cabe em ~75mm)
+    consulta:  6,    // "Consulta de autenticidade..."
+    emit:      10,   // razão social do emitente (bold)
+    emitEnd:   7,    // endereço do emitente
+    canhoto:   6,    // texto do canhoto
+    info:      7,    // informações complementares
+  };
+
+  // label pequeno (acima ou ao lado do valor) — cinza escuro
+  const label = (s, x, yy) => {
+    pdf.setFontSize(FZ.label);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setTextColor(80);
+    txt(s, x, yy);
+    pdf.setTextColor(0);
+  };
+  // valor "normal"
+  const valor = (s, x, yy) => {
+    pdf.setFontSize(FZ.valor);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setTextColor(0);
+    txt(s, x, yy);
+  };
+  const valorBold = (s, x, yy) => {
+    pdf.setFontSize(FZ.valorBold);
+    pdf.setFont('helvetica', 'bold');
+    pdf.setTextColor(0);
+    txt(s, x, yy);
+    pdf.setFont('helvetica', 'normal');
+  };
+  // título de seção — barra preta com texto branco (estilo DANFE oficial)
+  const tituloSecao = (s, x, yy, w) => {
+    pdf.setFillColor(0, 0, 0);
+    pdf.rect(x, yy, w, 4, 'F');
+    pdf.setFontSize(FZ.secao);
+    pdf.setFont('helvetica', 'bold');
+    pdf.setTextColor(255);
+    txt(s, x + 1.5, yy + 2.9);
+    pdf.setTextColor(0);
+    pdf.setFont('helvetica', 'normal');
+  };
+
+  pdf.setLineWidth(0.2);
+  pdf.setDrawColor(0);
+
+  // formata número BR com 2 decimais e separadores pt-BR
+  const nBR = (n) => {
+    if (n == null || n === '' || isNaN(n)) return '0,00';
+    return Number(n).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+  const nBR4 = (n) => {
+    if (n == null || n === '' || isNaN(n)) return '0,0000';
+    return Number(n).toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
+  };
+  const clip = (s, max) => {
+    s = String(s == null ? '' : s);
+    return s.length > max ? s.slice(0, max - 1) + '…' : s;
+  };
+
+  // ═════════ MARCA D'ÁGUA ═════════
+  // Desenhada PRIMEIRO (fica no fundo). Cinza claro, diagonal, em toda a página.
+  // Usa GState pra transparência (jsPDF 2.x). Se não suportado, usa cor cinza clara direta.
+  try {
+    const gs = pdf.GState && pdf.GState({ opacity: 0.15 });
+    if (gs) pdf.setGState(gs);
+  } catch (_) { /* ignore se não suportar */ }
+  pdf.setTextColor(120, 120, 120);
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(28);
+  const textoMarca = 'Sistema interno';
+  // desenha em 3 posições diagonais pra cobrir a página toda
+  // angle negativo (-55°) = diagonal subindo pra direita
+  pdf.text(textoMarca, 105, 90,  { align: 'center', angle: -55 });
+  pdf.text(textoMarca, 105, 170, { align: 'center', angle: -55 });
+  pdf.text(textoMarca, 105, 250, { align: 'center', angle: -55 });
+  // reset
+  try {
+    const gsFull = pdf.GState && pdf.GState({ opacity: 1 });
+    if (gsFull) pdf.setGState(gsFull);
+  } catch (_) {}
+  pdf.setTextColor(0, 0, 0);
+  pdf.setFont('helvetica', 'normal');
+
+  // ═════════ CANHOTO DE RECEBIMENTO ═════════
+  // Faixa de 10mm no topo, dividida em:
+  //   - esquerda (wCanhE): "RECEBEMOS DE ... FATURA ... AO LADO"
+  //   - meio inferior: DATA DE RECEBIMENTO | IDENTIFICAÇÃO E ASSINATURA DO RECEBEDOR
+  //   - direita (wCanhD): bloco destacado com "NF-e N°. ... SÉRIE ..."
+  const hCanh = 13;
+  const wCanhD = 28;
+  const wCanhE = W - wCanhD;
+
+  // Linha tracejada no fim pra sugerir "destacar aqui"
+  const yAfterCanhoto = y + hCanh;
+  const dashY = yAfterCanhoto + 0.8;
+  pdf.setLineDashPattern([1, 1], 0);
+  line(M, dashY, M + W, dashY);
+  pdf.setLineDashPattern([], 0);
+
+  // Retângulos do canhoto
+  rect(M, y, wCanhE, hCanh);
+  rect(M + wCanhE, y, wCanhD, hCanh);
+
+  // Texto superior: "RECEBEMOS DE {EMIT} OS PRODUTOS CONSTANTES DA NOTA FISCAL AO LADO"
+  pdf.setFontSize(FZ.canhoto);
+  pdf.setFont('helvetica', 'normal');
+  const numExtenso = String(d.numero || '').padStart(9, '0');
+  const textoRecebimento = `RECEBEMOS DE ${(d.emit?.nome || '').toUpperCase()} OS PRODUTOS CONSTANTES DA NOTA FISCAL INDICADA AO LADO`;
+  const linhasRec = pdf.splitTextToSize(textoRecebimento, wCanhE - 3);
+  txt(linhasRec[0] || '', M + 1.5, y + 3);
+  if (linhasRec[1]) txt(linhasRec[1], M + 1.5, y + 5.5);
+
+  // linha horizontal divisória dentro da parte esquerda
+  const yDiv = y + 6.5;
+  line(M, yDiv, M + wCanhE, yDiv);
+  // coluna vertical: divide "DATA DE RECEBIMENTO" e "IDENTIFICAÇÃO..."
+  const wDataRec = 22;
+  line(M + wDataRec, yDiv, M + wDataRec, y + hCanh);
+
+  label('DATA DE RECEBIMENTO', M + 1, yDiv + 2.5);
+  // se tiver data de emissão, preenche o recebimento também
+  valor(fmtDataDanfe(d.dataEmissao), M + 1, yDiv + 6);
+  label('IDENTIFICAÇÃO E ASSINATURA DO RECEBEDOR', M + wDataRec + 1, yDiv + 2.5);
+
+  // Bloco direita: NF-e N° / SÉRIE / data emissão
+  pdf.setFont('helvetica', 'bold'); pdf.setFontSize(FZ.nNF);
+  txt('NF-e', M + wCanhE + wCanhD / 2, y + 4, { align: 'center' });
+  pdf.setFontSize(FZ.canhoto);
+  txt(`N°. ${numExtenso}`, M + wCanhE + wCanhD / 2, y + 7.5, { align: 'center' });
+  txt(`SÉRIE ${d.serie || ''}`,  M + wCanhE + wCanhD / 2, y + 10.5, { align: 'center' });
+  pdf.setFont('helvetica', 'normal');
+  txt(fmtDataDanfe(d.dataEmissao), M + wCanhE + wCanhD / 2, y + 12.5, { align: 'center' });
+
+  y += hCanh + 1.5; // espaço para a linha tracejada
+
+  // ═════════ CABEÇALHO: 3 colunas ═════════
+  // Total altura cabeçalho: 30mm
+  const hCab = 30;
+  const wCol1 = 70;  // emitente
+  const wCol2 = 55;  // DANFE + nº + série
+  const wCol3 = W - wCol1 - wCol2; // código de barras + chave
+
+  // Caixa externa do cabeçalho (3 colunas lado a lado)
+  rect(M, y, wCol1, hCab);
+  rect(M + wCol1, y, wCol2, hCab);
+  rect(M + wCol1 + wCol2, y, wCol3, hCab);
+
+  // ─── Coluna 1: Emitente ───
+  // sem logo, sem nome bold. Só label "Identificação do Emitente" (solicitado: em branco)
+  label('Identificação do Emitente', M + 1, y + 2.5);
+  // linha 1: razão social (bold, centralizada horizontalmente na coluna)
+  pdf.setFont('helvetica', 'bold'); pdf.setFontSize(FZ.emit);
+  const nomeE = clip(d.emit?.nome || '', 38);
+  txt(nomeE, M + wCol1 / 2, y + 8, { align: 'center' });
+  pdf.setFont('helvetica', 'normal'); pdf.setFontSize(FZ.emitEnd);
+  // endereço (pode precisar quebrar em 2 linhas)
+  const endE = d.emit?.endereco || '';
+  const linhasEnd = pdf.splitTextToSize(endE, wCol1 - 4);
+  txt(linhasEnd.slice(0, 2).join('\n'), M + wCol1 / 2, y + 12, { align: 'center' });
+  // município-UF
+  const cidE = [d.emit?.municipio, d.emit?.uf].filter(Boolean).join(' - ');
+  txt(cidE, M + wCol1 / 2, y + 18, { align: 'center' });
+  // bairro
+  if (d.emit?.bairro) txt(d.emit.bairro, M + wCol1 / 2, y + 21, { align: 'center' });
+  // CEP
+  if (d.emit?.cep) txt(`CEP: ${fmtCep(d.emit.cep)}`, M + wCol1 / 2, y + 24, { align: 'center' });
+  // fone
+  if (d.emit?.fone) txt(`Fone: ${d.emit.fone}`, M + wCol1 / 2, y + 27, { align: 'center' });
+
+  // ─── Coluna 2: DANFE + nº + série ───
+  const xCol2 = M + wCol1;
+  pdf.setFont('helvetica', 'bold'); pdf.setFontSize(FZ.danfe);
+  txt('DANFE', xCol2 + wCol2 / 2, y + 5, { align: 'center' });
+  pdf.setFontSize(FZ.danfeSub);
+  txt('DOCUMENTO AUXILIAR DA', xCol2 + wCol2 / 2, y + 8.5, { align: 'center' });
+  txt('NOTA FISCAL ELETRÔNICA', xCol2 + wCol2 / 2, y + 11, { align: 'center' });
+
+  pdf.setFont('helvetica', 'normal'); pdf.setFontSize(FZ.valor);
+  // caixas ENTRADA / SAÍDA + marcação
+  const caixaE_y = y + 13;
+  const caixaE_h = 6;
+  const caixaE_x = xCol2 + 3;
+  const caixaE_w = 22;
+  // "0 - ENTRADA"
+  txt('0 - ENTRADA', caixaE_x, caixaE_y + 2);
+  // "1 - SAÍDA"
+  txt('1 - SAÍDA', caixaE_x, caixaE_y + 5);
+  // caixinha de marcação à direita dos dois rótulos
+  const mkBox_x = caixaE_x + caixaE_w + 2;
+  rect(mkBox_x, caixaE_y, 5, caixaE_h);
+  // marca 0 ou 1 conforme tipoOp
+  pdf.setFont('helvetica', 'bold'); pdf.setFontSize(FZ.nNF);
+  txt(d.tipoOp === 'ENTRADA' ? '0' : '1', mkBox_x + 2.5, caixaE_y + 4.2, { align: 'center' });
+  pdf.setFont('helvetica', 'normal');
+
+  // Nº, SÉRIE, FOLHA — abaixo das caixinhas
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(FZ.nNF);
+  const numStr = String(d.numero || '').padStart(9, '0');
+  txt(`Nº ${numStr}`, xCol2 + wCol2 / 2, y + 22.5, { align: 'center' });
+  pdf.setFontSize(FZ.serie);
+  txt(`SÉRIE ${d.serie || ''}`, xCol2 + wCol2 / 2, y + 26, { align: 'center' });
+  txt('FOLHA 1/1',               xCol2 + wCol2 / 2, y + 29, { align: 'center' });
+  pdf.setFont('helvetica', 'normal');
+
+  // ─── Coluna 3: Código de barras + chave ───
+  const xCol3 = xCol2 + wCol2;
+  // barcode no topo
+  const chave = (d.chave || '').replace(/\D/g, '');
+  console.log('[DANFE] Chave recebida em desenharDanfe (', chave.length, 'dígitos):', chave);
+  if (chave.length === 44) {
+    const barcodePng = gerarCodigoBarras(chave);
+    if (barcodePng) {
+      try {
+        pdf.addImage(barcodePng, 'PNG', xCol3 + 2, y + 1.5, wCol3 - 4, 11, undefined, 'FAST');
+        console.log('[DANFE] ✔ Código de barras adicionado ao PDF');
+      } catch (e) {
+        console.error('[DANFE] ❌ addImage falhou:', e.message || e);
+      }
+    } else {
+      console.warn('[DANFE] ❌ Código de barras NÃO gerado — chave:', chave.substring(0, 10) + '...');
+    }
+  } else {
+    console.warn('[DANFE] ❌ Chave não tem 44 dígitos — não vai ter barcode. Valor recebido:', JSON.stringify(d.chave), 'após normalização:', chave);
+  }
+  // label "CHAVE DE ACESSO"
+  label('CHAVE DE ACESSO', xCol3 + 2, y + 14);
+  // chave formatada
+  pdf.setFont('helvetica', 'bold'); pdf.setFontSize(FZ.chave);
+  txt(fmtChave(chave), xCol3 + wCol3 / 2, y + 18, { align: 'center' });
+  pdf.setFont('helvetica', 'normal');
+  // texto de consulta (2 linhas pequenas)
+  pdf.setFontSize(FZ.consulta);
+  txt('Consulta de autenticidade no portal nacional da NF-e',
+      xCol3 + wCol3 / 2, y + 22, { align: 'center' });
+  txt('www.nfe.fazenda.gov.br/portal ou no site da Sefaz Autorizadora',
+      xCol3 + wCol3 / 2, y + 25, { align: 'center' });
+
+  y += hCab;
+
+  // ═════════ NATUREZA + PROTOCOLO ═════════
+  const hLin = 7;
+  rect(M, y, W, hLin);
+  line(M + W * 0.55, y, M + W * 0.55, y + hLin); // divisor
+  label('NATUREZA DA OPERAÇÃO', M + 1, y + 2.5);
+  valor(clip(d.natureza, 80), M + 1, y + 6);
+  label('PROTOCOLO DE AUTORIZAÇÃO', M + W * 0.55 + 1, y + 2.5);
+  valor(`${d.protocolo || ''}${d.dhProt ? '  ' + d.dhProt : ''}`,
+         M + W * 0.55 + 1, y + 6);
+  y += hLin;
+
+  // ═════════ IE | IE ST | CNPJ ═════════
+  rect(M, y, W, hLin);
+  const w1 = W * 0.35, w2 = W * 0.30;
+  line(M + w1, y, M + w1, y + hLin);
+  line(M + w1 + w2, y, M + w1 + w2, y + hLin);
+  label('INSCRIÇÃO ESTADUAL', M + 1, y + 2.5);
+  valor(d.emit?.ie || '', M + 1, y + 6);
+  label('INSC. EST. SUBS. TRIBUTÁRIO', M + w1 + 1, y + 2.5);
+  valor('', M + w1 + 1, y + 6);
+  label('CNPJ', M + w1 + w2 + 1, y + 2.5);
+  valor(fmtCnpjCpf(d.emit?.cnpj), M + w1 + w2 + 1, y + 6);
+  y += hLin;
+
+  // ═════════ DESTINATÁRIO/REMETENTE ═════════
+  // barra de título
+  const hTitulo = 4;
+  tituloSecao('DESTINATÁRIO/REMETENTE', M, y, W);
+  y += hTitulo;
+
+  // Linha 1: Nome | CNPJ | Data Emissão
+  rect(M, y, W, hLin);
+  const d1_w1 = W * 0.55, d1_w2 = W * 0.25;
+  line(M + d1_w1, y, M + d1_w1, y + hLin);
+  line(M + d1_w1 + d1_w2, y, M + d1_w1 + d1_w2, y + hLin);
+  label('NOME/RAZÃO SOCIAL', M + 1, y + 2.5);
+  valor(clip(d.dest?.nome, 70), M + 1, y + 6);
+  label('CNPJ/CPF', M + d1_w1 + 1, y + 2.5);
+  valor(fmtCnpjCpf(d.dest?.cnpjCpf), M + d1_w1 + 1, y + 6);
+  label('DATA DA EMISSÃO', M + d1_w1 + d1_w2 + 1, y + 2.5);
+  valor(fmtDataDanfe(d.dataEmissao), M + d1_w1 + d1_w2 + 1, y + 6);
+  y += hLin;
+
+  // Linha 2: Endereço | Bairro | CEP | Data Saída/Entrada
+  rect(M, y, W, hLin);
+  const d2_w1 = W * 0.40, d2_w2 = W * 0.25, d2_w3 = W * 0.15;
+  line(M + d2_w1, y, M + d2_w1, y + hLin);
+  line(M + d2_w1 + d2_w2, y, M + d2_w1 + d2_w2, y + hLin);
+  line(M + d2_w1 + d2_w2 + d2_w3, y, M + d2_w1 + d2_w2 + d2_w3, y + hLin);
+  label('ENDEREÇO', M + 1, y + 2.5);
+  valor(clip(d.dest?.endereco, 55), M + 1, y + 6);
+  label('BAIRRO/DISTRITO', M + d2_w1 + 1, y + 2.5);
+  valor(clip(d.dest?.bairro, 30), M + d2_w1 + 1, y + 6);
+  label('CEP', M + d2_w1 + d2_w2 + 1, y + 2.5);
+  valor(fmtCep(d.dest?.cep), M + d2_w1 + d2_w2 + 1, y + 6);
+  label('DATA DE SAÍDA/ENTRADA', M + d2_w1 + d2_w2 + d2_w3 + 1, y + 2.5);
+  valor(fmtDataDanfe(d.dataEmissao), M + d2_w1 + d2_w2 + d2_w3 + 1, y + 6);
+  y += hLin;
+
+  // Linha 3: Município | Fone | UF | IE | Hora Saída
+  rect(M, y, W, hLin);
+  const d3_w1 = W * 0.30, d3_w2 = W * 0.20, d3_w3 = W * 0.08, d3_w4 = W * 0.27;
+  line(M + d3_w1, y, M + d3_w1, y + hLin);
+  line(M + d3_w1 + d3_w2, y, M + d3_w1 + d3_w2, y + hLin);
+  line(M + d3_w1 + d3_w2 + d3_w3, y, M + d3_w1 + d3_w2 + d3_w3, y + hLin);
+  line(M + d3_w1 + d3_w2 + d3_w3 + d3_w4, y, M + d3_w1 + d3_w2 + d3_w3 + d3_w4, y + hLin);
+  label('MUNICÍPIO', M + 1, y + 2.5);
+  valor(clip(d.dest?.municipio, 40), M + 1, y + 6);
+  label('FONE/FAX', M + d3_w1 + 1, y + 2.5);
+  valor(d.dest?.fone || '', M + d3_w1 + 1, y + 6);
+  label('UF', M + d3_w1 + d3_w2 + 1, y + 2.5);
+  valor(d.dest?.uf || '', M + d3_w1 + d3_w2 + 1, y + 6);
+  label('INSCRIÇÃO ESTADUAL', M + d3_w1 + d3_w2 + d3_w3 + 1, y + 2.5);
+  valor(d.dest?.ie || '', M + d3_w1 + d3_w2 + d3_w3 + 1, y + 6);
+  label('HORA DE SAÍDA', M + d3_w1 + d3_w2 + d3_w3 + d3_w4 + 1, y + 2.5);
+  valor(d.horaEmissao || '', M + d3_w1 + d3_w2 + d3_w3 + d3_w4 + 1, y + 6);
+  y += hLin;
+
+  // ═════════ FATURA / DUPLICATA ═════════
+  tituloSecao('FATURA / DUPLICATA', M, y, W);
+  y += hTitulo;
+
+  // Até 3 colunas de "Num. | Vencto. | Valor" na mesma linha
+  // Cada trinca ocupa W/3
+  const dupsPorLinha = 3;
+  const wTrinca = W / dupsPorLinha;
+  const dups = d.dups || [];
+  // número mínimo de linhas = 1 (mesmo se não tiver duplicata)
+  const nLinhasDup = Math.max(1, Math.ceil(dups.length / dupsPorLinha));
+  // cabeçalho (1 linha pequena)
+  const hDupHdr = 3;
+  rect(M, y, W, hDupHdr);
+  for (let c = 0; c < dupsPorLinha; c++) {
+    const x0 = M + c * wTrinca;
+    if (c > 0) line(x0, y, x0, y + hDupHdr + nLinhasDup * hLin);
+    const sub1 = wTrinca * 0.40, sub2 = wTrinca * 0.30;
+    line(x0 + sub1, y, x0 + sub1, y + hDupHdr + nLinhasDup * hLin);
+    line(x0 + sub1 + sub2, y, x0 + sub1 + sub2, y + hDupHdr + nLinhasDup * hLin);
+    label('FATURA/DUPLIC.', x0 + 1, y + 2.2);
+    label('VENCIMENTO',     x0 + sub1 + 1, y + 2.2);
+    label('VALOR',          x0 + sub1 + sub2 + 1, y + 2.2);
+  }
+  y += hDupHdr;
+
+  // linhas
+  for (let li = 0; li < nLinhasDup; li++) {
+    rect(M, y, W, hLin);
+    for (let c = 0; c < dupsPorLinha; c++) {
+      const x0 = M + c * wTrinca;
+      if (c > 0) line(x0, y, x0, y + hLin);
+      const sub1 = wTrinca * 0.40, sub2 = wTrinca * 0.30;
+      line(x0 + sub1, y, x0 + sub1, y + hLin);
+      line(x0 + sub1 + sub2, y, x0 + sub1 + sub2, y + hLin);
+      const dup = dups[li * dupsPorLinha + c];
+      if (dup) {
+        valor(dup.num || '', x0 + 1, y + 4.5);
+        valor(fmtDataDanfe(dup.venc), x0 + sub1 + 1, y + 4.5);
+        // valor alinhado à direita dentro da coluna VALOR da trinca
+        pdf.setFontSize(FZ.valor); pdf.setFont('helvetica', 'normal');
+        txt(nBR(dup.valor), x0 + wTrinca - 1, y + 4.5, { align: 'right' });
+      }
+    }
+    y += hLin;
+  }
+
+  // ═════════ CÁLCULO DO IMPOSTO ═════════
+  tituloSecao('CÁLCULO DO IMPOSTO', M, y, W);
+  y += hTitulo;
+
+  // Linha 1: BC ICMS | V.ICMS | BC ICMS ST | V.ICMS ST | Valor Total Produtos
+  rect(M, y, W, hLin);
+  const imp1 = [0.20, 0.20, 0.20, 0.20, 0.20]; // porcentagens
+  let xi = M;
+  for (let i = 0; i < imp1.length; i++) {
+    const w = W * imp1[i];
+    if (i > 0) line(xi, y, xi, y + hLin);
+    xi += w;
+  }
+  xi = M;
+  const lbls1 = ['BASE DE CÁLCULO DO ICMS', 'VALOR DO ICMS', 'BASE DE CÁLCULO DO ICMS ST', 'VALOR DO ICMS SUBSTITUTO', 'VALOR TOTAL DOS PRODUTOS'];
+  const vals1 = [d.tot.vBC, d.tot.vICMS, d.tot.vBCST, d.tot.vST, d.tot.vProd];
+  for (let i = 0; i < imp1.length; i++) {
+    const w = W * imp1[i];
+    label(lbls1[i], xi + 1, y + 2.5);
+    pdf.setFontSize(FZ.valor); pdf.setFont('helvetica', 'normal');
+    txt(nBR(vals1[i]), xi + w - 1, y + 6, { align: 'right' });
+    xi += w;
+  }
+  y += hLin;
+
+  // Linha 2: V.Frete | V.Seguro | V.Desconto | Outras | V.IPI | Valor Total Nota
+  rect(M, y, W, hLin);
+  const imp2 = [0.15, 0.15, 0.17, 0.17, 0.16, 0.20];
+  xi = M;
+  for (let i = 0; i < imp2.length; i++) {
+    const w = W * imp2[i];
+    if (i > 0) line(xi, y, xi, y + hLin);
+    xi += w;
+  }
+  xi = M;
+  const lbls2 = ['VALOR DO FRETE', 'VALOR DO SEGURO', 'VALOR DO DESCONTO', 'OUTRAS DESPESAS', 'VALOR DO IPI', 'VALOR TOTAL DA NOTA'];
+  const vals2 = [d.tot.vFrete, d.tot.vSeg, d.tot.vDesc, d.tot.vOutro, d.tot.vIPI, d.tot.vNF];
+  for (let i = 0; i < imp2.length; i++) {
+    const w = W * imp2[i];
+    label(lbls2[i], xi + 1, y + 2.5);
+    pdf.setFontSize(FZ.valor);
+    pdf.setFont('helvetica', i === imp2.length - 1 ? 'bold' : 'normal');
+    txt(nBR(vals2[i]), xi + w - 1, y + 6, { align: 'right' });
+    pdf.setFont('helvetica', 'normal');
+    xi += w;
+  }
+  y += hLin;
+
+  // ═════════ TRANSPORTADOR / VOLUMES ═════════
+  tituloSecao('TRANSPORTADOR/VOLUMES TRANSPORTADOS', M, y, W);
+  y += hTitulo;
+
+  const modFreteTxt = ({
+    '0': '0 - Remetente', '1': '1 - Destinatário', '2': '2 - Terceiros',
+    '3': '3 - Próprio Remetente', '4': '4 - Próprio Destinatário', '9': '9 - Sem Frete'
+  })[d.transp?.modFrete] || '';
+
+  // Linha 1: Razão | Frete por conta | ANTT | Placa | UF | CNPJ
+  rect(M, y, W, hLin);
+  const tr1 = [0.22, 0.20, 0.11, 0.10, 0.06, 0.31];
+  xi = M;
+  for (let i = 0; i < tr1.length; i++) { if (i > 0) line(xi, y, xi, y + hLin); xi += W * tr1[i]; }
+  xi = M;
+  const tr1lbls = ['RAZÃO SOCIAL', 'FRETE POR CONTA', 'CÓDIGO ANTT', 'PLACA', 'UF', 'CNPJ'];
+  const tr1vals = [d.transp?.transportadora || '', modFreteTxt, '', d.transp?.placa || '', d.transp?.ufVeic || '', fmtCnpjCpf(d.transp?.cnpjTransp)];
+  for (let i = 0; i < tr1.length; i++) {
+    const w = W * tr1[i];
+    label(tr1lbls[i], xi + 1, y + 2.5);
+    valor(clip(tr1vals[i], Math.floor(w / 1.8)), xi + 1, y + 6);
+    xi += w;
+  }
+  y += hLin;
+
+  // Linha 2: Endereço | Município | UF | IE
+  rect(M, y, W, hLin);
+  const tr2 = [0.44, 0.30, 0.06, 0.20];
+  xi = M;
+  for (let i = 0; i < tr2.length; i++) { if (i > 0) line(xi, y, xi, y + hLin); xi += W * tr2[i]; }
+  xi = M;
+  const tr2lbls = ['ENDEREÇO', 'MUNICÍPIO', 'UF', 'INSCRIÇÃO ESTADUAL'];
+  const tr2vals = ['', '', '', d.transp?.ieTransp || ''];
+  for (let i = 0; i < tr2.length; i++) {
+    const w = W * tr2[i];
+    label(tr2lbls[i], xi + 1, y + 2.5);
+    valor(clip(tr2vals[i], Math.floor(w / 1.8)), xi + 1, y + 6);
+    xi += w;
+  }
+  y += hLin;
+
+  // Linha 3: Qtde | Espécie | Marca | Numeração | Peso Bruto | Peso Líquido
+  rect(M, y, W, hLin);
+  const tr3 = [0.12, 0.18, 0.18, 0.18, 0.17, 0.17];
+  xi = M;
+  for (let i = 0; i < tr3.length; i++) { if (i > 0) line(xi, y, xi, y + hLin); xi += W * tr3[i]; }
+  xi = M;
+  const tr3lbls = ['QUANTIDADE', 'ESPÉCIE', 'MARCA', 'NUMERAÇÃO', 'PESO BRUTO', 'PESO LÍQUIDO'];
+  const pBr = d.transp?.pesoBr ? `${d.transp.pesoBr} KG` : '';
+  const pLq = d.transp?.pesoLiq ? `${d.transp.pesoLiq} KG` : '';
+  const tr3vals = [
+    d.transp?.qtdVol ? String(d.transp.qtdVol).padStart(5, '0') : '',
+    d.transp?.especie || '', '', '', pBr, pLq
+  ];
+  for (let i = 0; i < tr3.length; i++) {
+    const w = W * tr3[i];
+    label(tr3lbls[i], xi + 1, y + 2.5);
+    valor(clip(tr3vals[i], Math.floor(w / 1.8)), xi + 1, y + 6);
+    xi += w;
+  }
+  y += hLin;
+
+  // ═════════ DADOS DOS PRODUTOS/SERVIÇOS ═════════
+  tituloSecao('DADOS DOS PRODUTOS/SERVIÇOS', M, y, W);
+  y += hTitulo;
+
+  // Cabeçalho da tabela: 14 colunas
+  // C.PROD | Descrição | NCM | CST | CFOP | UN | QTD | V.UNIT | V.TOTAL | BC ICMS | V.ICMS | V.IPI | %ICMS | %IPI
+  const hProdHdr = 7;
+  const hProdLinha = 4;
+  const cols = [
+    { key: 'codigo',   lbl: 'C. PROD.',         w: 0.07, align: 'left' },
+    { key: 'descricao',lbl: 'DESCRIÇÃO DO PRODUTO/SERVIÇO', w: 0.30, align: 'left' },
+    { key: 'ncm',      lbl: 'NCM/SH',           w: 0.06, align: 'left' },
+    { key: 'cst',      lbl: 'CST',              w: 0.03, align: 'left' },
+    { key: 'cfop',     lbl: 'CFOP',             w: 0.04, align: 'left' },
+    { key: 'unid',     lbl: 'UN',               w: 0.03, align: 'left' },
+    { key: 'qtd',      lbl: 'QUANTIDADE',       w: 0.065, align: 'right' },
+    { key: 'vUnit',    lbl: 'VALOR UNITÁRIO',   w: 0.065, align: 'right' },
+    { key: 'vTotal',   lbl: 'VALOR TOTAL',      w: 0.07, align: 'right' },
+    { key: 'baseICMS', lbl: 'B. CALC. ICMS',    w: 0.06, align: 'right' },
+    { key: 'vICMS',    lbl: 'VALOR ICMS',       w: 0.05, align: 'right' },
+    { key: 'vIPI',     lbl: 'VALOR IPI',        w: 0.05, align: 'right' },
+    { key: 'alqICMS',  lbl: '% ICMS',           w: 0.04, align: 'right' },
+    { key: 'alqIPI',   lbl: '% IPI',            w: 0.04, align: 'right' },
+  ];
+  // soma das larguras: 0.07+0.30+0.06+0.03+0.04+0.03+0.06+0.07+0.07+0.06+0.05+0.05+0.04+0.04 = 0.97 → rebalanceia
+  // ajusta pra somar 1.0
+  const somaCols = cols.reduce((s, c) => s + c.w, 0);
+  cols.forEach(c => c.w = c.w / somaCols);
+
+  // cabeçalho
+  rect(M, y, W, hProdHdr);
+  xi = M;
+  for (let i = 0; i < cols.length; i++) {
+    const w = W * cols[i].w;
+    if (i > 0) line(xi, y, xi, y + hProdHdr);
+    pdf.setFontSize(FZ.prodHdr);
+    pdf.setFont('helvetica', 'bold');
+    // quebra o label em 2 linhas se tiver espaço
+    const lns = pdf.splitTextToSize(cols[i].lbl, w - 1);
+    txt(lns.slice(0, 2).join('\n'), xi + w / 2, y + 2.5, { align: 'center' });
+    pdf.setFont('helvetica', 'normal');
+    xi += w;
+  }
+
+  y += hProdHdr;
+
+  // ─── Reserva de espaço para os blocos finais (ISSQN + DADOS ADICIONAIS) ───
+  // ISSQN: hTitulo(4) + linha valores(8) = 12mm
+  // DADOS ADICIONAIS: hTitulo(4) + conteúdo fixo ~45mm
+  // Reservamos 61mm no fundo pra garantir que esses blocos encaixam
+  const reservaFundo = 12 + 4 + 45; // = 61mm
+  const yLimiteTabela = PAGE_H - M - reservaFundo;
+
+  // linhas dos produtos
+  const itens = d.itens || [];
+  const yAntesTabela = y;  // guardamos pra saber onde começou a área de dados
+  for (const it of itens) {
+    if (y + hProdLinha > yLimiteTabela) break; // não ultrapassa área reservada
+    rect(M, y, W, hProdLinha);
+    xi = M;
+    for (let i = 0; i < cols.length; i++) {
+      const w = W * cols[i].w;
+      if (i > 0) line(xi, y, xi, y + hProdLinha);
+      let v = it[cols[i].key];
+      // formata numéricos
+      if (['qtd', 'vUnit', 'vTotal', 'baseICMS', 'vICMS', 'vIPI'].includes(cols[i].key)) {
+        v = nBR(v);
+      } else if (['alqICMS', 'alqIPI'].includes(cols[i].key)) {
+        v = nBR(v);
+      } else {
+        v = clip(String(v || ''), Math.floor(w / 1.3));
+      }
+      pdf.setFontSize(FZ.prodLin);
+      if (cols[i].align === 'right') txt(v, xi + w - 1, y + 2.8, { align: 'right' });
+      else                           txt(v, xi + 1, y + 2.8);
+      xi += w;
+    }
+    y += hProdLinha;
+  }
+
+  // ─── Preenche o espaço vertical restante da tabela de produtos ───
+  // Estende as bordas das colunas até onde começará o ISSQN, deixando o
+  // espaço vazio mas visualmente fechado (como no modelo oficial).
+  if (y < yLimiteTabela) {
+    const yTopoVazio = y;
+    const alturaVazio = yLimiteTabela - y;
+    // retângulo externo da área vazia
+    rect(M, yTopoVazio, W, alturaVazio);
+    // linhas verticais das colunas, até o fim da área
+    xi = M;
+    for (let i = 0; i < cols.length; i++) {
+      const w = W * cols[i].w;
+      if (i > 0) line(xi, yTopoVazio, xi, yTopoVazio + alturaVazio);
+      xi += w;
+    }
+    y = yLimiteTabela;
+  }
+
+  // ═════════ CÁLCULO DO ISSQN ═════════
+  tituloSecao('CÁLCULO DO ISSQN', M, y, W);
+  y += hTitulo;
+
+  rect(M, y, W, 8);
+  const iss = [0.35, 0.25, 0.20, 0.20];
+  xi = M;
+  for (let i = 0; i < iss.length; i++) { if (i > 0) line(xi, y, xi, y + 8); xi += W * iss[i]; }
+  xi = M;
+  const issLbls = ['INSC. MUNICIPAL', 'VALOR SERVIÇOS', 'BASE CÁLCULO ISS', 'VALOR DO ISS'];
+  for (let i = 0; i < iss.length; i++) {
+    const w = W * iss[i];
+    label(issLbls[i], xi + 1, y + 2.5);
+    if (i > 0) {
+      pdf.setFontSize(FZ.valor); pdf.setFont('helvetica', 'normal');
+      txt('0,00', xi + w - 1, y + 6.8, { align: 'right' });
+    }
+    xi += w;
+  }
+  y += 8;
+
+  // ═════════ DADOS ADICIONAIS ═════════
+  tituloSecao('DADOS ADICIONAIS', M, y, W);
+  y += hTitulo;
+
+  // altura: ocupa até o fim da página
+  const hInfo = PAGE_H - M - y;
+  rect(M, y, W, hInfo);
+  const wInfo = W * 0.65;
+  line(M + wInfo, y, M + wInfo, y + hInfo);
+  label('INFORMAÇÕES COMPLEMENTARES', M + 1, y + 2.5);
+  label('RESERVADO AO FISCO', M + wInfo + 1, y + 2.5);
+  // texto
+  pdf.setFontSize(FZ.info);
+  const textoCpl = d.infCpl || '';
+  const linhasCpl = pdf.splitTextToSize(textoCpl, wInfo - 3);
+  const maxLinhas = Math.max(1, Math.floor((hInfo - 4) / 2.5));
+  txt(linhasCpl.slice(0, maxLinhas).join('\n'), M + 1, y + 5);
+
+  // texto reservado ao fisco
+  const textoFisco = d.infAdFisco || '';
+  if (textoFisco) {
+    const linhasFisco = pdf.splitTextToSize(textoFisco, W - wInfo - 3);
+    txt(linhasFisco.slice(0, maxLinhas).join('\n'), M + wInfo + 1, y + 5);
+  }
+}
+// Gera o PDF com DANFEs de todas as notas atualmente filtradas na aba Dados (categoria GÁS)
+async function gerarDanfesFiltradas() {
+  // valida dependências
+  if (typeof window.jspdf === 'undefined' || !window.jspdf.jsPDF) {
+    setStatus('Biblioteca jsPDF não carregou. Recarregue a página.', 'err');
+    return;
+  }
+  if (typeof JsBarcode === 'undefined') {
+    setStatus('Biblioteca JsBarcode não carregou. Recarregue a página.', 'err');
+    return;
+  }
+
+  // filtro atual: CNPJs gás + não excluídas + busca textual
+  const cnpjs = categoriaDados === 'energia' ? cnpjsEnergia : cnpjsGas;
+  let notas = dbNF.filter(r =>
+    cnpjs.has(soDigitos(r['CNPJ Emitente'])) &&
+    !notasExcluidasGas.has(idNotaGas(r))
+  );
+  const q = (document.getElementById('search-dados')?.value || '').toLowerCase();
+  if (q) notas = notas.filter(r => Object.values(r).some(v => String(v).toLowerCase().includes(q)));
+
+  // Filtra só NF-e modelo 55 (DANFE NF3-e não está implementada)
+  const notasNFe = notas.filter(r => r['Modelo'] === 'NF-e');
+  const ignoradas = notas.length - notasNFe.length;
+
+  if (!notasNFe.length) {
+    const msg = ignoradas
+      ? `Nenhuma NF-e modelo 55 disponível. ${ignoradas} nota(s) NF3-e foram ignoradas (DANFE de energia não suportada).`
+      : 'Nenhuma nota filtrada para gerar DANFE.';
+    setStatus(msg, 'err');
+    return;
+  }
+
+  document.getElementById('loader').style.display = 'flex';
+  document.querySelector('#loader .loader-txt').textContent = `Gerando ${notasNFe.length} DANFE(s)…`;
+  await new Promise(r => setTimeout(r, 30));
+
+  try {
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+    let primeira = true;
+    let geradas = 0;
+    let errosGer = 0;
+
+    for (const nota of notasNFe) {
+      if (!nota.xmlRaw) { errosGer++; continue; }
+      if (!primeira) pdf.addPage();
+      primeira = false;
+      try {
+        const dados = extrairDadosDanfe(nota.xmlRaw);
+        desenharDanfe(pdf, dados);
+        geradas++;
+      } catch (e) {
+        console.warn(`Erro na nota ${nota['Numero NF']}:`, e.message);
+        errosGer++;
+        // ainda conta como página — mostra erro na DANFE
+        pdf.setFontSize(12);
+        pdf.text(`Erro ao gerar DANFE desta nota:`, 20, 20);
+        pdf.setFontSize(10);
+        pdf.text(`Arquivo: ${nota['Arquivo']}`, 20, 30);
+        pdf.text(`Erro: ${e.message}`, 20, 38);
+      }
+    }
+
+    const nomeArq = `DANFEs_${new Date().toISOString().substring(0,10)}.pdf`;
+    pdf.save(nomeArq);
+
+    let msg = `${geradas} DANFE(s) gerada(s) em ${nomeArq}`;
+    if (errosGer)  msg += ` · ${errosGer} erro(s)`;
+    if (ignoradas) msg += ` · ${ignoradas} NF3-e ignorada(s)`;
+    setStatus(msg, 'ok');
+  } catch (err) {
+    console.error(err);
+    setStatus('Erro ao gerar PDF: ' + err.message, 'err');
+  } finally {
+    document.getElementById('loader').style.display = 'none';
+    document.querySelector('#loader .loader-txt').textContent = 'Processando XMLs…';
+  }
 }
 
 // inicializa UI de vínculo no carregamento
