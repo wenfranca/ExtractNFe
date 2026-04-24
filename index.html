@@ -244,6 +244,10 @@ thead th.sort-desc::after { content: ' ↓'; color: var(--neon2); }
 tbody tr { border-bottom: 1px solid var(--rim); transition: background .1s; }
 tbody tr:last-child { border-bottom: none; }
 tbody tr:hover { background: rgba(255,255,255,.025); }
+#tbody-itens tr.consinco-row:hover { background: rgba(61,127,255,.08); }
+#tbody-itens tr.consinco-row:active { background: rgba(61,127,255,.14); }
+#tbody-dados tr.dados-row[onclick]:hover { background: rgba(61,127,255,.08); }
+#tbody-dados tr.dados-row[onclick]:active { background: rgba(61,127,255,.14); }
 tbody td { padding: 9px 14px; white-space: nowrap; color: var(--mist); }
 tbody td.td-loja  { color: var(--neon2); font-weight: 700; }
 tbody td.td-num   { text-align: right; color: var(--mint); font-weight: 600; font-variant-numeric: tabular-nums; }
@@ -414,6 +418,33 @@ tbody td.td-hfp   { color: var(--warm);  font-weight: 600; font-variant-numeric:
   </div>
 </div>
 
+<!-- Modal PREVIEW DANFE (Consinco) -->
+<div id="modal-preview-danfe" style="position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,0.75);display:none;align-items:center;justify-content:center;padding:20px;">
+  <div style="background:var(--panel);border:1px solid var(--rim2);border-radius:12px;width:100%;max-width:900px;height:90vh;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,.8);">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 20px;border-bottom:1px solid var(--rim);">
+      <div>
+        <strong style="color:var(--neon2);font-size:14px;">🖨 Preview DANFE</strong>
+        <div id="modal-preview-danfe-sub" style="color:var(--fog);font-size:11px;margin-top:2px;"></div>
+      </div>
+      <button onclick="fecharPreviewDanfe()" style="background:transparent;border:1px solid var(--rim2);color:var(--fog);padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px;">✕ Fechar</button>
+    </div>
+    <div style="flex:1;overflow:hidden;background:#1a1a1a;position:relative;">
+      <div id="modal-preview-danfe-loading" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--mist);font-size:13px;">
+        <div style="display:flex;flex-direction:column;align-items:center;gap:12px;">
+          <div class="spinner" style="width:28px;height:28px;border:3px solid var(--rim);border-top-color:var(--neon2);border-radius:50%;animation:spin 1s linear infinite;"></div>
+          Gerando DANFE...
+        </div>
+      </div>
+      <iframe id="modal-preview-danfe-iframe" style="width:100%;height:100%;border:0;display:none;background:white;"></iframe>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;padding:10px 20px;border-top:1px solid var(--rim);">
+      <button onclick="baixarDanfePreview()" id="btn-baixar-danfe-preview" style="background:linear-gradient(135deg,var(--neon),var(--neon2));border:none;color:#fff;padding:8px 16px;border-radius:7px;cursor:pointer;font-size:12px;font-weight:600;letter-spacing:.3px;">⬇ Baixar PDF</button>
+      <button onclick="fecharPreviewDanfe()" style="background:var(--panel2);border:1px solid var(--rim2);color:var(--ice);padding:8px 16px;border-radius:7px;cursor:pointer;font-size:12px;">Fechar</button>
+    </div>
+  </div>
+</div>
+<style>@keyframes spin { to { transform: rotate(360deg); } }</style>
+
 <div class="topbar">
   <div class="topbar-left">
     <div class="brand">EXTRACT NF-e</div>
@@ -498,6 +529,7 @@ tbody td.td-hfp   { color: var(--warm);  font-weight: 600; font-variant-numeric:
         <input class="tbl-search" id="search-itens" placeholder="Filtrar…" oninput="renderItens()">
         <span class="record-count" id="count-itens">0 registros</span>
         <button class="btn-sm" onclick="exportarAba('itens')">⬇ exportar aba</button>
+        <button class="btn-sm" onclick="gerarDanfesConsinco()" style="border-color:var(--neon2);color:var(--neon2);" title="Gera DANFEs das notas filtradas (exige filtro)">🖨 gerar DANFEs</button>
       </div>
       <div class="table-wrap">
         <table>
@@ -527,14 +559,21 @@ tbody td.td-hfp   { color: var(--warm);  font-weight: 600; font-variant-numeric:
                 style="background:var(--panel2);border:1px solid var(--rim);color:var(--ice);padding:6px 12px;border-radius:7px;font-family:var(--font-ui);font-size:12px;font-weight:600;outline:none;cursor:pointer;">
           <option value="gas">⛽ GÁS</option>
           <option value="energia">⚡ ENERGIA</option>
+          <option value="agua">💧 ÁGUA</option>
         </select>
         <input class="tbl-search" id="search-dados" placeholder="Filtrar…" oninput="renderDados()">
         <span class="record-count" id="count-dados">0 registros</span>
         <button class="btn-sm" id="btn-restaurar-dados" onclick="restaurarNotasDados()" style="display:none;border-color:var(--warm);color:var(--warm);" title="Restaurar notas excluídas da visão">↩ restaurar <span id="count-restaurar-dados">0</span></button>
-        <button class="btn-sm" onclick="exportarAba('dados')">⬇ exportar aba</button>
+        <button class="btn-sm" id="btn-exportar-dados" onclick="exportarAba('dados')">⬇ exportar aba</button>
+        <!-- Botões de ÁGUA (aparecem só quando categoria = agua) -->
+        <button class="btn-sm" id="btn-importar-pdfs-agua" onclick="document.getElementById('agua-pdf-input').click()" style="display:none;border-color:var(--neon);color:var(--neon);" title="Seleciona uma pasta e processa todos os PDFs dentro dela">📁 importar pasta de PDFs</button>
+        <button class="btn-sm" id="btn-limpar-agua" onclick="limparDadosAgua()" style="display:none;border-color:var(--hot);color:var(--hot);">✕ limpar água</button>
+        <input type="file" id="agua-pdf-input" webkitdirectory directory multiple style="display:none;" onchange="importarPdfsAgua(this.files); this.value='';">
+        <!-- Botões de GÁS/ENERGIA (escondidos quando categoria = agua) -->
         <button class="btn-sm" id="btn-gerar-danfe" onclick="gerarDanfesFiltradas()" style="border-color:var(--neon2);color:var(--neon2);" title="Gerar PDF com todas as DANFEs das notas filtradas">🖨 gerar DANFEs</button>
-        <button class="btn-sm" id="btn-vincular-gas" onclick="vincularPlanilhaGas()" style="border-color:var(--warm);color:var(--warm);">📎 vincular CONTROLE.xlsx</button>
+        <button class="btn-sm" id="btn-vincular-gas" onclick="vincularPlanilhaGas()" style="border-color:var(--warm);color:var(--warm);">📎 Vincular</button>
         <button class="btn-sm" id="btn-integrar-gas" onclick="integrarPlanilhaGasDireto()" style="border-color:var(--mint);color:var(--mint);display:none;">⚡ integrar direto</button>
+        <button class="btn-sm" id="btn-integrar-agua" onclick="integrarPlanilhaAguaDireto()" style="border-color:var(--mint);color:var(--mint);display:none;">⚡ integrar direto</button>
         <button class="btn-sm" id="btn-desvincular-gas" onclick="desvincularPlanilhaGas()" style="display:none;" title="Desvincular arquivo">✕</button>
         <span id="gas-vinculo-info" style="font-size:11px;color:var(--fog);margin-left:4px;"></span>
       </div>
@@ -852,6 +891,14 @@ function setStatus(html,type='') {
 let abaAtiva = 'nf'; // 'nf' | 'itens' | 'energia' | 'gas'
 
 function updateKPIs() {
+  // Quando aba = Dados e categoria = água, mostra KPIs específicos de água
+  if (abaAtiva === 'dados' && categoriaDados === 'agua') {
+    atualizarKpisAgua();
+    return;
+  }
+  // Restaura labels padrão (podem ter sido trocados pelo modo água)
+  restaurarKpisPadrao();
+
   // KPIs reagem conforme a aba ativa
   let base;
   if      (abaAtiva === 'gas')     base = dbNF.filter(r => cnpjsGas.has(soDigitos(r['CNPJ Emitente'])) && !notasExcluidasGas.has(idNotaGas(r)));
@@ -956,15 +1003,22 @@ function renderItens() {
   });
   const tbody=document.getElementById('tbody-itens');
   if(!rows.length){tbody.innerHTML=`<tr><td colspan="7" class="empty-cell"><span class="empty-icon">📋</span>Nenhuma nota carregada</td></tr>`;return;}
-  tbody.innerHTML=rows.map((r,i)=>`<tr>
-    <td class="td-loja">${r['Loja']??'—'}</td>
-    <td class="td-desc" title="${r['Nome Emitente']||''}">${trunc(r['Nome Emitente'],26)}</td>
-    <td class="td-code">${r['Numero NF']??'—'}</td>
-    <td class="td-date">${fmtDate(r['Data Emissão'])}</td>
-    <td class="td-date">${fmtDate(r['Vencimento'])}</td>
-    <td class="td-num">${fmtNum(r['Quantidade Total'],0)}</td>
-    <td class="td-num">${fmtBRL(r['V. Total NF'])}</td>
-  </tr>`).join('');
+  tbody.innerHTML=rows.map((r,i)=>{
+    const id = idNotaGas(r);
+    const idEsc = String(id).replace(/'/g,"\\'");
+    const ehNFe = r['Modelo'] === 'NF-e';
+    const titulo = ehNFe ? 'Clique para visualizar a DANFE' : 'NF3-e não possui DANFE';
+    const cursor = ehNFe ? 'cursor:pointer;' : 'cursor:default;opacity:.7;';
+    return `<tr class="consinco-row" style="${cursor}" title="${titulo}" onclick="previewDanfeConsinco('${idEsc}')">
+      <td class="td-loja">${r['Loja']??'—'}</td>
+      <td class="td-desc" title="${r['Nome Emitente']||''}">${trunc(r['Nome Emitente'],26)}</td>
+      <td class="td-code">${r['Numero NF']??'—'}</td>
+      <td class="td-date">${fmtDate(r['Data Emissão'])}</td>
+      <td class="td-date">${fmtDate(r['Vencimento'])}</td>
+      <td class="td-num">${fmtNum(r['Quantidade Total'],0)}</td>
+      <td class="td-num">${fmtBRL(r['V. Total NF'])}</td>
+    </tr>`;
+  }).join('');
 }
 
 // renderEnergia foi substituída pelo painel Dados unificado — mantém stub vazio
@@ -1041,23 +1095,55 @@ function atualizarInfoCadastro() {
 const GAS_COLS     = ['Loja','Nome Emitente','CNPJ Emitente','Numero NF','Data Emissão','Vencimento','Quantidade Total','V. Total NF'];
 const ENERGIA_TBL_COLS = ['Loja','Nome Emitente','CNPJ Emitente','Numero NF','Data Emissão','Vencimento','HFP','HP','Quantidade Total','V. Total NF'];
 
-// Categoria ativa no painel "Dados": 'gas' | 'energia'
+// Categoria ativa no painel "Dados": 'gas' | 'energia' | 'agua'
 let categoriaDados = 'gas';
 
 function mudarCategoriaDados() {
   const sel = document.getElementById('sel-categoria-dados');
   if (!sel) return;
   categoriaDados = sel.value;
+  ajustarBotoesCategoria();
   renderDados();
   updateKPIs();
   atualizarBotaoDanfe();
 }
 
-// Esconde o botão DANFE em Energia (só NF-e modelo 55 é suportada)
+// Mostra/esconde botões conforme a categoria ativa.
+// Água: mostra 'importar PDFs', 'limpar água' e 'Vincular' (CONTROLE.xlsx).
+//       Esconde DANFE e 'integrar direto' (específicos de XML).
+// Gás/Energia: comportamento original.
+function ajustarBotoesCategoria() {
+  const ehAgua = categoriaDados === 'agua';
+  const show = id => { const e = document.getElementById(id); if (e) e.style.display = ''; };
+  const hide = id => { const e = document.getElementById(id); if (e) e.style.display = 'none'; };
+  if (ehAgua) {
+    show('btn-importar-pdfs-agua');
+    show('btn-limpar-agua');
+    show('btn-vincular-gas');      // Vincular CONTROLE.xlsx também pra água
+    hide('btn-gerar-danfe');
+    hide('btn-integrar-gas');      // integrar direto de gás/energia nunca em água
+    hide('btn-restaurar-dados');
+    const info = document.getElementById('gas-vinculo-info');
+    if (info) info.style.display = '';
+    // desvincular/integrar-agua aparecem só se já houver arquivo vinculado
+    atualizarUiVinculoGas();
+  } else {
+    hide('btn-importar-pdfs-agua');
+    hide('btn-limpar-agua');
+    hide('btn-integrar-agua');     // integrar-agua nunca em gás/energia
+    show('btn-vincular-gas');
+    const info = document.getElementById('gas-vinculo-info');
+    if (info) info.style.display = '';
+    atualizarUiVinculoGas();
+    atualizarBotaoDanfe();
+  }
+}
+
+// Esconde o botão DANFE em Energia e Água (só NF-e modelo 55 de Gás é suportada)
 function atualizarBotaoDanfe() {
   const btn = document.getElementById('btn-gerar-danfe');
   if (!btn) return;
-  btn.style.display = (categoriaDados === 'energia') ? 'none' : '';
+  btn.style.display = (categoriaDados === 'gas') ? '' : 'none';
 }
 
 // ─── Exclusão de notas da visão atual (aba Dados) ───
@@ -1108,6 +1194,9 @@ function renderDados() {
   const tbody = document.getElementById('tbody-dados');
   const thead = document.getElementById('thead-dados');
   if (!tbody || !thead) return;
+
+  // Categoria água tem fluxo completamente diferente (PDFs, não XMLs)
+  if (categoriaDados === 'agua') { renderDadosAgua(); return; }
 
   const ehEnergia = categoriaDados === 'energia';
   const icone = ehEnergia ? '⚡' : '⛽';
@@ -1174,9 +1263,15 @@ function renderDados() {
   tbody.innerHTML = rows.map(r => {
     const id = idNotaGas(r);
     const idEsc = String(id).replace(/'/g, "\\'");
-    const btnX = `<td><button class="btn-excluir-gas" title="Excluir esta nota da visão" onclick="excluirNotaGas('${idEsc}')" style="background:transparent;border:1px solid var(--rim2);color:var(--fog);width:22px;height:22px;border-radius:4px;cursor:pointer;font-size:12px;line-height:1;padding:0;transition:all .15s;" onmouseover="this.style.borderColor='var(--hot)';this.style.color='var(--hot)';" onmouseout="this.style.borderColor='var(--rim2)';this.style.color='var(--fog)';">✕</button></td>`;
+    // Energia (NF3-e) não tem DANFE — só gás (NF-e modelo 55) tem preview clicável
+    const ehNFe = r['Modelo'] === 'NF-e';
+    const titulo = ehNFe ? 'Clique para visualizar a DANFE' : 'NF3-e não possui DANFE';
+    const cursor = ehNFe ? 'cursor:pointer;' : 'cursor:default;';
+    // stopPropagation no botão X pra clique no ✕ não disparar o preview
+    const btnX = `<td><button class="btn-excluir-gas" title="Excluir esta nota da visão" onclick="event.stopPropagation();excluirNotaGas('${idEsc}')" style="background:transparent;border:1px solid var(--rim2);color:var(--fog);width:22px;height:22px;border-radius:4px;cursor:pointer;font-size:12px;line-height:1;padding:0;transition:all .15s;" onmouseover="this.style.borderColor='var(--hot)';this.style.color='var(--hot)';" onmouseout="this.style.borderColor='var(--rim2)';this.style.color='var(--fog)';">✕</button></td>`;
+    const onClick = ehNFe ? `onclick="previewDanfeConsinco('${idEsc}')"` : '';
     if (ehEnergia) {
-      return `<tr>${btnX}
+      return `<tr class="dados-row" style="${cursor}" title="${titulo}" ${onClick}>${btnX}
         <td class="td-loja">${r['Loja']??'—'}</td>
         <td class="td-desc" title="${r['Nome Emitente']||''}">${trunc(r['Nome Emitente'],26)}</td>
         <td class="td-cnpj">${fmtCNPJ(r['CNPJ Emitente'])}</td>
@@ -1189,7 +1284,7 @@ function renderDados() {
         <td class="td-num">${fmtBRL(r['V. Total NF'])}</td>
       </tr>`;
     } else {
-      return `<tr>${btnX}
+      return `<tr class="dados-row" style="${cursor}" title="${titulo}" ${onClick}>${btnX}
         <td class="td-loja">${r['Loja']??'—'}</td>
         <td class="td-desc" title="${r['Nome Emitente']||''}">${trunc(r['Nome Emitente'],28)}</td>
         <td class="td-cnpj">${fmtCNPJ(r['CNPJ Emitente'])}</td>
@@ -1218,6 +1313,8 @@ document.addEventListener('DOMContentLoaded', () => {
   atualizarInfoCadastro();
   // ajusta visibilidade do botão DANFE conforme categoria inicial
   atualizarBotaoDanfe();
+  // esconde botões de água na carga inicial (categoria padrão = gás)
+  ajustarBotoesCategoria();
 });
 
 // remove espaços invisíveis de campos de texto (espaço normal, NBSP \u00A0, tabs, quebras de linha)
@@ -1240,17 +1337,76 @@ function exportarXlsx() {
   XLSX.writeFile(wb,'notas_historico.xlsx');
   setStatus('Exportado com sucesso.','ok');
 }
+
+// Formata data para dd/mm/yyyy (ano com 4 dígitos) para exportação em planilha.
+// Aceita Date, número serial Excel, "d/m/yy", "dd/mm/yyyy", "yyyy-mm-dd", e formato americano m/d/y como fallback.
+// Se não reconhecer, devolve o valor original (string).
+function formatarDataExport(v) {
+  if (v === null || v === undefined || v === '') return '';
+  const pad = n => String(n).padStart(2, '0');
+  const fmt = (d, m, y) => `${pad(d)}/${pad(m)}/${y}`;
+
+  if (v instanceof Date && !isNaN(v)) {
+    return fmt(v.getDate(), v.getMonth() + 1, v.getFullYear());
+  }
+  if (typeof v === 'number' && isFinite(v) && v > 0 && v < 80000) {
+    const base = new Date(Date.UTC(1899, 11, 30));
+    const d = new Date(base.getTime() + Math.round(v) * 86400000);
+    return fmt(d.getUTCDate(), d.getUTCMonth() + 1, d.getUTCFullYear());
+  }
+  const s = String(v).trim();
+  if (!s) return '';
+
+  let m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
+  if (m) {
+    let a = parseInt(m[1], 10), b = parseInt(m[2], 10), y = parseInt(m[3], 10);
+    if (y < 100) y += 2000;
+    if (a >= 1 && a <= 31 && b >= 1 && b <= 12) return fmt(a, b, y);
+    if (b >= 1 && b <= 31 && a >= 1 && a <= 12) return fmt(b, a, y); // fallback m/d/y
+  }
+  m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (m) {
+    const y = parseInt(m[1], 10), mo = parseInt(m[2], 10), d = parseInt(m[3], 10);
+    if (d >= 1 && d <= 31 && mo >= 1 && mo <= 12) return fmt(d, mo, y);
+  }
+  return s;
+}
+
 function exportarAba(which) {
   let data, sheet;
   if (which === 'nf') {
-    data = dbNF.map(r => ({...r, Chave: undefined, xmlRaw: undefined}));
+    data = dbNF.map(r => ({
+      ...r,
+      'Data Emissão': formatarDataExport(r['Data Emissão']),
+      'Vencimento':   formatarDataExport(r['Vencimento']),
+      Chave: undefined,
+      xmlRaw: undefined,
+    }));
     sheet = 'Base Completa';
   } else if (which === 'itens') {
-    data = dbNF.map(r => ({'Loja':r['Loja'],'Empresa':r['Nome Emitente'],'NF':r['Numero NF'],'Emissão':r['Data Emissão'],'Vencimento':r['Vencimento'],'Total':r['Quantidade Total'],'Total Conta':r['V. Total NF']}));
+    data = dbNF.map(r => ({
+      'Loja':        r['Loja'],
+      'Empresa':     r['Nome Emitente'],
+      'NF':          r['Numero NF'],
+      'Emissão':     formatarDataExport(r['Data Emissão']),
+      'Vencimento':  formatarDataExport(r['Vencimento']),
+      'Total':       r['Quantidade Total'],
+      'Total Conta': r['V. Total NF'],
+    }));
     sheet = 'Consinco';
   } else if (which === 'dados') {
     // exporta a categoria ativa no painel Dados
-    which = categoriaDados; // cai nos blocos abaixo
+    // Categoria água usa exportador próprio (formato específico do AquaSync)
+    if (categoriaDados === 'agua') {
+      if (!window.Agua || !window.Agua.getDados().length) {
+        setStatus('Nenhuma fatura de água carregada.', 'err');
+        return;
+      }
+      const nome = window.Agua.exportarExcel();
+      if (nome) setStatus(`Exportado: ${nome}`, 'ok');
+      return;
+    }
+    which = categoriaDados; // cai nos blocos abaixo (gas/energia)
   }
 
   if (which === 'energia') {
@@ -1260,7 +1416,18 @@ function exportarAba(which) {
       cnpjsEnergia.has(soDigitos(r['CNPJ Emitente'])) &&
       !notasExcluidasGas.has(idNotaGas(r))
     );
-    data = filtradas.map(r => ({'Loja':r['Loja'],'Empresa':r['Nome Emitente'],'CNPJ':fmtCNPJ(r['CNPJ Emitente']),'NF':r['Numero NF'],'Emissão':r['Data Emissão'],'Vencimento':r['Vencimento'],'HFP':r['HFP'],'HP':r['HP'],'Total':r['Quantidade Total'],'Total Conta':r['V. Total NF']}));
+    data = filtradas.map(r => ({
+      'Loja':        r['Loja'],
+      'Empresa':     r['Nome Emitente'],
+      'CNPJ':        fmtCNPJ(r['CNPJ Emitente']),
+      'NF':          r['Numero NF'],
+      'Emissão':     formatarDataExport(r['Data Emissão']),
+      'Vencimento':  formatarDataExport(r['Vencimento']),
+      'HFP':         r['HFP'],
+      'HP':          r['HP'],
+      'Total':       r['Quantidade Total'],
+      'Total Conta': r['V. Total NF'],
+    }));
     sheet = 'Energia';
   } else if (which === 'gas') {
     if (!cnpjsGas.size) { setStatus('Cadastre os CNPJs de gás antes de exportar.','err'); return; }
@@ -1273,8 +1440,8 @@ function exportarAba(which) {
       'Empresa':       r['Nome Emitente'],
       'CNPJ':          fmtCNPJ(r['CNPJ Emitente']),
       'NF':            r['Numero NF'],
-      'Emissão':       r['Data Emissão'],
-      'Vencimento':    r['Vencimento'],
+      'Emissão':       formatarDataExport(r['Data Emissão']),
+      'Vencimento':    formatarDataExport(r['Vencimento']),
       'Quantidade':    r['Quantidade Total'],
       'V. Total NF':   r['V. Total NF']
     }));
@@ -1335,19 +1502,24 @@ function suportaFileSystemAccess() {
 }
 
 function atualizarUiVinculoGas() {
-  const vBtn  = document.getElementById('btn-vincular-gas');
-  const iBtn  = document.getElementById('btn-integrar-gas');
-  const dBtn  = document.getElementById('btn-desvincular-gas');
-  const info  = document.getElementById('gas-vinculo-info');
+  const vBtn   = document.getElementById('btn-vincular-gas');
+  const iBtn   = document.getElementById('btn-integrar-gas');
+  const iBtnAg = document.getElementById('btn-integrar-agua');
+  const dBtn   = document.getElementById('btn-desvincular-gas');
+  const info   = document.getElementById('gas-vinculo-info');
   if (!vBtn || !iBtn || !dBtn || !info) return;
+  const ehAgua = categoriaDados === 'agua';
   if (gasFileHandle) {
     vBtn.style.display = 'none';
-    iBtn.style.display = '';
+    // mostra o integrar específico da categoria
+    iBtn.style.display   = ehAgua ? 'none' : '';
+    if (iBtnAg) iBtnAg.style.display = ehAgua ? '' : 'none';
     dBtn.style.display = '';
     info.innerHTML = `🔗 <span style="color:var(--mint);">${gasFileName}</span>`;
   } else {
     vBtn.style.display = '';
     iBtn.style.display = 'none';
+    if (iBtnAg) iBtnAg.style.display = 'none';
     dBtn.style.display = 'none';
     info.textContent = '';
   }
@@ -1452,6 +1624,65 @@ function acharColunaMes(headers) {
   return -1;
 }
 
+// Detecta se um cabeçalho é coluna de data (Emissão, Vencimento, Data, Pagamento, etc.)
+function ehColunaData(header) {
+  const h = String(header || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  return /emiss|venc|data|pagament|leitura|entrega/.test(h);
+}
+
+// Formata qualquer representação de data para dd/mm/aa (2 dígitos no ano).
+// Aceita: Date, "dd/mm/yyyy", "d/m/yy", "dd-mm-yyyy", "yyyy-mm-dd", número serial do Excel.
+// Se d/m/a não for válido (ex: mês > 12), tenta m/d/a (formato americano) como fallback.
+// Se não conseguir interpretar, devolve o valor original como string.
+function formatarDataPlanilha(v) {
+  if (v === null || v === undefined || v === '') return '';
+
+  const pad = n => String(n).padStart(2, '0');
+  const fmt = (d, m, y) => `${pad(d)}/${pad(m)}/${pad(y % 100)}`;
+
+  // Date nativo
+  if (v instanceof Date && !isNaN(v)) {
+    return fmt(v.getDate(), v.getMonth() + 1, v.getFullYear());
+  }
+
+  // Número serial do Excel (dias desde 30/12/1899)
+  if (typeof v === 'number' && isFinite(v) && v > 0 && v < 80000) {
+    const base = new Date(Date.UTC(1899, 11, 30));
+    const ms = base.getTime() + Math.round(v) * 86400000;
+    const d = new Date(ms);
+    return fmt(d.getUTCDate(), d.getUTCMonth() + 1, d.getUTCFullYear());
+  }
+
+  const s = String(v).trim();
+  if (!s) return '';
+
+  // dd/mm/yyyy, d/m/yy, dd-mm-yyyy, d.m.yyyy, etc.
+  let m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
+  if (m) {
+    let a = parseInt(m[1], 10);
+    let b = parseInt(m[2], 10);
+    let y = parseInt(m[3], 10);
+    if (y < 100) y += 2000;
+    // tenta primeiro como d/m/a (padrão BR)
+    if (a >= 1 && a <= 31 && b >= 1 && b <= 12) return fmt(a, b, y);
+    // fallback: m/d/a (padrão americano) — quando o "mês" da interpretação BR é > 12
+    // ex: "3/24/26" → a=3, b=24 → b>12 → interpreta como m/d/a → dia=24, mês=3
+    if (b >= 1 && b <= 31 && a >= 1 && a <= 12) return fmt(b, a, y);
+  }
+
+  // yyyy-mm-dd (ISO)
+  m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (m) {
+    const y = parseInt(m[1], 10);
+    const mo = parseInt(m[2], 10);
+    const d = parseInt(m[3], 10);
+    if (d >= 1 && d <= 31 && mo >= 1 && mo <= 12) return fmt(d, mo, y);
+  }
+
+  // Não reconheceu — devolve como estava
+  return s;
+}
+
 function renderPlanilha() {
   const nomeAba = document.getElementById('sel-planilha-aba')?.value || 'GÁS';
   const dados = cacheDadosPlanilha[nomeAba];
@@ -1501,11 +1732,37 @@ function renderPlanilha() {
     return;
   }
 
+  // pré-calcula quais colunas são de data pra aplicar formatação dd/mm/aa
+  // detecção 1: pelo nome do cabeçalho (Emissão, Vencimento, Data, etc.)
+  // detecção 2: pelo conteúdo — se >=60% das células não-vazias da coluna parecem data, trata como data
+  //   (cobre casos onde o cabeçalho tem nome atípico — ex: "VENC.", "DT EMIS")
+  const pareceData = v => {
+    if (v === null || v === undefined || v === '') return false;
+    if (v instanceof Date) return true;
+    const s = String(v).trim();
+    return /^\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}$/.test(s) || /^\d{4}-\d{1,2}-\d{1,2}/.test(s);
+  };
+  const amostra = exibir.slice(0, 30); // olha só as 30 primeiras linhas exibidas
+  const colsData = headers.map((h, i) => {
+    if (ehColunaData(h)) return true;
+    // conta quantas células não-vazias da amostra parecem data
+    let total = 0, datas = 0;
+    for (const r of amostra) {
+      const v = r[i];
+      if (v === null || v === undefined || v === '') continue;
+      total++;
+      if (pareceData(v)) datas++;
+    }
+    return total >= 3 && datas / total >= 0.6;
+  });
+
   tbody.innerHTML = exibir.map(row => {
     const cols = headers.map((_, i) => {
       const v = row[i];
       if (v === null || v === undefined || v === '') return '<td class="td-cnpj">—</td>';
-      return `<td title="${escapeHtml(String(v))}">${escapeHtml(String(v))}</td>`;
+      const txt = colsData[i] ? formatarDataPlanilha(v) : String(v);
+      if (txt === '') return '<td class="td-cnpj">—</td>';
+      return `<td title="${escapeHtml(txt)}">${escapeHtml(txt)}</td>`;
     }).join('');
     return `<tr>${cols}</tr>`;
   }).join('')
@@ -1604,6 +1861,9 @@ function abrirModalIntegrarGas(qtdNotas) {
 
 function fecharModalIntegrarGas() {
   document.getElementById('modal-integrar-gas').classList.remove('show');
+  // Garante que o próximo uso do modal (seja gás ou água) comece do estado padrão.
+  // Se foi aberto por água, o handler do botão "Integrar" foi trocado — restauramos aqui.
+  if (typeof restaurarModalIntegrarParaGas === 'function') restaurarModalIntegrarParaGas();
 }
 
 async function confirmarIntegrarGas() {
@@ -1730,6 +1990,190 @@ async function executarIntegracaoGas(mesRef, dia) {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// INTEGRAÇÃO DIRETA ÁGUA — grava faturas PDF na aba AGUA do CONTROLE.xlsx
+// ═══════════════════════════════════════════════════════════════════
+
+async function integrarPlanilhaAguaDireto() {
+  if (!gasFileHandle) { setStatus('Vincule o CONTROLE.xlsx primeiro.', 'err'); return; }
+  if (!window.Agua) { setStatus('Módulo de água não carregado.', 'err'); return; }
+  const faturas = window.Agua.getDados();
+  if (!faturas.length) { setStatus('Nenhuma fatura de água carregada.', 'err'); return; }
+  if (typeof JSZip === 'undefined') {
+    setStatus('Biblioteca JSZip não carregou. Recarregue a página.', 'err');
+    return;
+  }
+  abrirModalIntegrarAgua(faturas.length);
+}
+
+function abrirModalIntegrarAgua(qtdFaturas) {
+  // Popula o seletor de dia (1..30) se estiver vazio — reaproveita o modal do gás
+  const selDia = document.getElementById('sel-dia');
+  if (selDia && selDia.options.length <= 1) {
+    for (let d = 1; d <= 30; d++) {
+      const opt = document.createElement('option');
+      opt.value = String(d);
+      opt.textContent = String(d);
+      selDia.appendChild(opt);
+    }
+  }
+  document.getElementById('sel-mes-ref').value = '';
+  if (selDia) selDia.value = '';
+
+  const info = document.getElementById('integrar-info-notas');
+  if (info) info.textContent = `${qtdFaturas} fatura(s) de água serão integradas · mês e boletim serão aplicados a todas`;
+
+  // Troca o handler do botão "Integrar" temporariamente pra confirmarIntegrarAgua
+  const btnConfirmar = document.querySelector('#modal-integrar-gas .modal-btn.primary');
+  if (btnConfirmar) btnConfirmar.setAttribute('onclick', 'confirmarIntegrarAgua()');
+
+  // Atualiza título e subtítulo do modal
+  const titulo = document.querySelector('#modal-integrar-gas .modal-title');
+  if (titulo) titulo.textContent = '💧 Integração de Água';
+  const sub = document.querySelector('#modal-integrar-gas .modal-sub');
+  if (sub) sub.textContent = 'Selecione o mês de referência e o boletim antes de integrar';
+
+  // Ajusta os labels dos campos pra refletir as colunas da água
+  const labels = document.querySelectorAll('#modal-integrar-gas label');
+  if (labels[0]) labels[0].textContent = 'Mês de referência (col. N) *';
+  if (labels[1]) labels[1].textContent = 'Boletim (col. Q) *';
+
+  document.getElementById('modal-integrar-gas').classList.add('show');
+}
+
+async function confirmarIntegrarAgua() {
+  const mesRef = document.getElementById('sel-mes-ref').value;
+  const dia = document.getElementById('sel-dia').value;
+
+  if (!mesRef || !dia) {
+    setStatus('Selecione o mês de referência E o boletim antes de integrar.', 'err');
+    return;
+  }
+  const mesNum = parseInt(mesRef, 10);
+  const diaNum = parseInt(dia, 10);
+  if (isNaN(mesNum) || mesNum < 1 || mesNum > 12) { setStatus('Mês inválido.', 'err'); return; }
+  if (isNaN(diaNum) || diaNum < 1 || diaNum > 30) { setStatus('Boletim inválido (1–30).', 'err'); return; }
+
+  // Restaura handler e títulos do modal ao fechar (pro gás voltar a funcionar normalmente)
+  fecharModalIntegrarGas();
+  restaurarModalIntegrarParaGas();
+
+  await executarIntegracaoAgua(mesNum, diaNum);
+}
+
+// Restaura o modal ao estado original (modo gás/energia)
+function restaurarModalIntegrarParaGas() {
+  const btnConfirmar = document.querySelector('#modal-integrar-gas .modal-btn.primary');
+  if (btnConfirmar) btnConfirmar.setAttribute('onclick', 'confirmarIntegrarGas()');
+  const titulo = document.querySelector('#modal-integrar-gas .modal-title');
+  if (titulo) titulo.textContent = '⚡ Integração';
+  const sub = document.querySelector('#modal-integrar-gas .modal-sub');
+  if (sub) sub.textContent = 'Selecione o mês de referência e o boletim antes de integrar';
+  const labels = document.querySelectorAll('#modal-integrar-gas label');
+  if (labels[0]) labels[0].textContent = 'Mês de referência (col. K) *';
+  if (labels[1]) labels[1].textContent = 'Boletim (col. R) *';
+}
+
+async function executarIntegracaoAgua(mesRef, dia) {
+  if (!gasFileHandle) { setStatus('Vincule o CONTROLE.xlsx primeiro.', 'err'); return; }
+  if (!window.Agua) { setStatus('Módulo de água não carregado.', 'err'); return; }
+
+  const faturas = window.Agua.getDados();
+  if (!faturas.length) { setStatus('Nenhuma fatura de água pra integrar.', 'err'); return; }
+
+  try {
+    const perm = await gasFileHandle.queryPermission({ mode: 'readwrite' });
+    if (perm !== 'granted') {
+      const novo = await gasFileHandle.requestPermission({ mode: 'readwrite' });
+      if (novo !== 'granted') { setStatus('Permissão de escrita negada.', 'err'); return; }
+    }
+
+    setStatus(`Lendo ${gasFileName} para verificar duplicatas na aba AGUA…`);
+    const file = await gasFileHandle.getFile();
+    const buffer = await file.arrayBuffer();
+
+    // ─── Verificação de duplicatas ───
+    // Chave: Nº Fatura | Fornecedor (tipo) | Matrícula
+    //   → se a mesma fatura do mesmo fornecedor pra mesma matrícula já está na aba, pula.
+    let faturasParaGravar = [...faturas];
+    let duplicatas = 0;
+    try {
+      const dadosAba = await lerDadosAbaPlanilha(buffer, 'AGUA');
+      const chavesExistentes = construirChavesDuplicataAgua(dadosAba);
+      faturasParaGravar = faturas.filter(f => {
+        const ch = chaveDuplicataAgua(f.numero_fatura, f.tipo, f.matricula);
+        if (ch && chavesExistentes.has(ch)) { duplicatas++; return false; }
+        return true;
+      });
+    } catch (errDup) {
+      console.warn('[ÁGUA] não foi possível verificar duplicatas:', errDup.message);
+      // segue adiante sem bloquear
+    }
+
+    if (!faturasParaGravar.length) {
+      const msg = duplicatas
+        ? `Todas as ${duplicatas} fatura(s) já estão na planilha. Nada a gravar.`
+        : 'Nenhuma fatura pra gravar.';
+      setStatus(msg, 'err');
+      return;
+    }
+
+    setStatus(`Gravando ${faturasParaGravar.length} fatura(s) na aba AGUA…`);
+    const resultado = await processarXlsxGas(buffer, faturasParaGravar, { mesRef, dia, categoria: 'agua' });
+    if (!resultado.inseridas) { setStatus('Nenhuma fatura pôde ser gravada.', 'err'); return; }
+
+    setStatus('Gravando arquivo...');
+    const writable = await gasFileHandle.createWritable();
+    await writable.write(resultado.blob);
+    await writable.close();
+
+    const sufixoDup = duplicatas ? ` · ${duplicatas} duplicata(s) ignorada(s)` : '';
+    setStatus(`✔ ${resultado.inseridas} fatura(s) de água gravada(s) em ${gasFileName} (mês ${mesRef}, boletim ${dia})${sufixoDup}.`, 'ok');
+  } catch (err) {
+    console.error('[ÁGUA] erro na integração:', err);
+    let msg = err.message || String(err);
+    if (err.name === 'NotAllowedError') msg = 'Permissão negada. Verifique se o arquivo não está aberto no Excel e autorize novamente.';
+    if (err.name === 'NotFoundError')   msg = 'Arquivo não encontrado. Ele pode ter sido movido ou apagado. Vincule novamente.';
+    setStatus('Erro ao integrar água: ' + msg, 'err');
+  }
+}
+
+// Chave de duplicata ÁGUA: Nº Fatura | Fornecedor | Matrícula (tudo normalizado)
+function chaveDuplicataAgua(numFatura, fornecedor, matricula) {
+  const n = v => String(v || '').trim().toUpperCase().replace(/\s+/g, '');
+  const a = n(numFatura), b = n(fornecedor), c = n(matricula);
+  if (!a || !b) return '';
+  return `${a}|${b}|${c}`;
+}
+
+// Varre a aba AGUA e monta Set de chaves NºFatura|Fornecedor|Matrícula
+function construirChavesDuplicataAgua(dadosAba) {
+  const chaves = new Set();
+  if (!dadosAba || !dadosAba.headers || !dadosAba.rows) return chaves;
+  const { headers, rows } = dadosAba;
+
+  const normHdr = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
+  let idxFatura = -1, idxFornec = -1, idxMatr = -1;
+  headers.forEach((h, i) => {
+    const n = normHdr(h);
+    if (idxFatura < 0 && (/FATURA/.test(n) || /\bNF\b/.test(n) || /NUMERO/.test(n))) idxFatura = i;
+    if (idxFornec < 0 && (/FORNECEDOR|EMPRESA|CONCESSION/.test(n))) idxFornec = i;
+    if (idxMatr   < 0 && (/MATRICULA|INSTALACAO|IDA/.test(n))) idxMatr = i;
+  });
+  // Se não detectar cabeçalhos, sai vazio — melhor não gerar duplicatas falsas
+  if (idxFatura < 0 || idxFornec < 0) return chaves;
+
+  for (const row of rows) {
+    const ch = chaveDuplicataAgua(
+      row[idxFatura],
+      row[idxFornec],
+      idxMatr >= 0 ? row[idxMatr] : ''
+    );
+    if (ch) chaves.add(ch);
+  }
+  return chaves;
+}
+
 // Normaliza uma chave de duplicata (NF + CNPJ + Loja).
 // Retorna string "NF|CNPJ|LOJA" com CNPJ em só dígitos, NF e Loja trimmed+upper.
 // Retorna '' se alguma das partes for inválida → nesse caso nunca bate com nada.
@@ -1840,6 +2284,53 @@ const MAPEAMENTOS = {
       out.N = { tipo: 'n', valor: paraNumero(nota['V. Total NF']) };
       if (mesRef != null && !isNaN(mesRef)) out.O = { tipo: 'n', valor: mesRef };
       if (diaRef != null && !isNaN(diaRef)) out.P = { tipo: 'n', valor: diaRef };
+      return out;
+    }
+  },
+  agua: {
+    abaAlvo: 'AGUA',
+    // Colunas monitoradas pra detectar última linha com dado real na aba
+    colsMonitor: ['A','H','I','J','K','L','M','N','Q'],
+    // Mapeamento ÁGUA (solicitado pelo usuário):
+    //   A=Loja, H="ÁGUA" (validação — grava como texto sem mudar formato da célula),
+    //   I="-" (texto fixo), J=Consumo (m³), K=Emissão, L=Vencimento,
+    //   M=Valor (total_pagar), N=Mês ref., Q=Boletim
+    // Aqui "nota" é na verdade um objeto do módulo Água (diferente de dbNF),
+    // com campos: { arquivo, tipo, matricula, identificador, numero_fatura,
+    //   data_emissao, vencimento, total_pagar, consumo_m3 }
+    preencher: (nota, ctx) => {
+      const out = {};
+      const mesRef = ctx.mesRef, diaRef = ctx.diaRef;
+      const { paraNumero, paraData, dataParaSerial } = ctx.utils;
+      // A — Loja. Em água, por enquanto, não temos extração automática de loja
+      //   do PDF. Se o resultado contiver .loja, usa; senão deixa em branco.
+      if (nota['loja'] != null && nota['loja'] !== '') {
+        out.A = { tipo: 's', valor: String(nota['loja']) };
+      }
+      // H — texto fixo "ÁGUA" (respeita a validação de dados da coluna)
+      out.H = { tipo: 's', valor: 'ÁGUA' };
+      // I — texto fixo "-"
+      out.I = { tipo: 's', valor: '-' };
+      // J — consumo em m³ (número)
+      const cons = paraNumero(nota['consumo_m3']);
+      if (cons != null) out.J = { tipo: 'n', valor: cons };
+      // K — emissão (data → serial Excel)
+      const emissao = paraData(nota['data_emissao']);
+      if (emissao) out.K = { tipo: 'n', valor: dataParaSerial(emissao) };
+      // L — vencimento
+      const vcto = paraData(nota['vencimento']);
+      if (vcto) out.L = { tipo: 'n', valor: dataParaSerial(vcto) };
+      // M — valor total a pagar (remove "R$ " e converte pra número)
+      const valRaw = nota['total_pagar'];
+      if (valRaw) {
+        const s = String(valRaw).replace(/R\$\s*/i, '');
+        const v = paraNumero(s);
+        if (v != null) out.M = { tipo: 'n', valor: v };
+      }
+      // N — mês de referência
+      if (mesRef != null && !isNaN(mesRef)) out.N = { tipo: 'n', valor: mesRef };
+      // Q — boletim
+      if (diaRef != null && !isNaN(diaRef)) out.Q = { tipo: 'n', valor: diaRef };
       return out;
     }
   }
@@ -2669,12 +3160,17 @@ function desenharDanfe(pdf, d) {
   const yDiv = y + 6.5;
   line(M, yDiv, M + wCanhE, yDiv);
   // coluna vertical: divide "DATA DE RECEBIMENTO" e "IDENTIFICAÇÃO..."
-  const wDataRec = 22;
+  // aumentado de 22 → 28 pra caber "DATA DE RECEBIMENTO" (label) e "dd/mm/aaaa" (valor 8pt)
+  const wDataRec = 28;
   line(M + wDataRec, yDiv, M + wDataRec, y + hCanh);
 
   label('DATA DE RECEBIMENTO', M + 1, yDiv + 2.5);
-  // se tiver data de emissão, preenche o recebimento também
-  valor(fmtDataDanfe(d.dataEmissao), M + 1, yDiv + 6);
+  // valor da data: fonte reduzida garante que 'dd/mm/aaaa' caiba na célula
+  pdf.setFontSize(7);
+  pdf.setFont('helvetica', 'normal');
+  pdf.setTextColor(0);
+  txt(fmtDataDanfe(d.dataEmissao), M + 1, yDiv + 6);
+  pdf.setFontSize(FZ.valor);
   label('IDENTIFICAÇÃO E ASSINATURA DO RECEBEDOR', M + wDataRec + 1, yDiv + 2.5);
 
   // Bloco direita: NF-e N° / SÉRIE / data emissão
@@ -2704,9 +3200,26 @@ function desenharDanfe(pdf, d) {
   // sem logo, sem nome bold. Só label "Identificação do Emitente" (solicitado: em branco)
   label('Identificação do Emitente', M + 1, y + 2.5);
   // linha 1: razão social (bold, centralizada horizontalmente na coluna)
-  pdf.setFont('helvetica', 'bold'); pdf.setFontSize(FZ.emit);
-  const nomeE = clip(d.emit?.nome || '', 38);
-  txt(nomeE, M + wCol1 / 2, y + 8, { align: 'center' });
+  // ajuste dinâmico de fonte: razão social longa (ex: "NACIONAL GAS BUTANO DISTRIBUIDORA LTDA")
+  // não cabe em 10pt dentro dos 70mm da coluna — reduz até caber
+  pdf.setFont('helvetica', 'bold');
+  const nomeE = String(d.emit?.nome || '');
+  const larguraDisp = wCol1 - 4; // 2mm de margem de cada lado
+  let fzNome = FZ.emit;
+  pdf.setFontSize(fzNome);
+  while (fzNome > 6 && pdf.getTextWidth(nomeE) > larguraDisp) {
+    fzNome -= 0.5;
+    pdf.setFontSize(fzNome);
+  }
+  // se mesmo em 6pt ainda não couber, trunca pra segurança
+  let nomeExib = nomeE;
+  if (pdf.getTextWidth(nomeExib) > larguraDisp) {
+    while (nomeExib.length > 1 && pdf.getTextWidth(nomeExib + '…') > larguraDisp) {
+      nomeExib = nomeExib.slice(0, -1);
+    }
+    nomeExib = nomeExib + '…';
+  }
+  txt(nomeExib, M + wCol1 / 2, y + 8, { align: 'center' });
   pdf.setFont('helvetica', 'normal'); pdf.setFontSize(FZ.emitEnd);
   // endereço (pode precisar quebrar em 2 linhas)
   const endE = d.emit?.endereco || '';
@@ -3252,6 +3765,218 @@ async function gerarDanfesFiltradas() {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// Geração de DANFEs direto da aba Consinco — respeita o filtro da aba
+// Exige filtro ativo pra evitar geração acidental de centenas de DANFEs.
+// ═══════════════════════════════════════════════════════════════════
+async function gerarDanfesConsinco() {
+  // valida dependências
+  if (typeof window.jspdf === 'undefined' || !window.jspdf.jsPDF) {
+    setStatus('Biblioteca jsPDF não carregou. Recarregue a página.', 'err');
+    return;
+  }
+  if (typeof JsBarcode === 'undefined') {
+    setStatus('Biblioteca JsBarcode não carregou. Recarregue a página.', 'err');
+    return;
+  }
+
+  // Exige filtro ativo (evita gerar tudo por acidente)
+  const q = (document.getElementById('search-itens')?.value || '').trim();
+  if (!q) {
+    setStatus('Digite um filtro na aba Consinco antes de gerar DANFEs (ex: nome do fornecedor).', 'err');
+    return;
+  }
+
+  // Aplica o filtro textual sobre dbNF — mesma lógica de renderItens
+  const qLower = q.toLowerCase();
+  let notas = dbNF.filter(r => Object.values(r).some(v => String(v).toLowerCase().includes(qLower)));
+
+  // DANFE só pra NF-e modelo 55 (NF3-e de energia não é suportada)
+  const notasNFe = notas.filter(r => r['Modelo'] === 'NF-e');
+  const ignoradas = notas.length - notasNFe.length;
+
+  if (!notasNFe.length) {
+    const msg = ignoradas
+      ? `Nenhuma NF-e modelo 55 no filtro "${q}". ${ignoradas} NF3-e ignorada(s) (DANFE de energia não suportada).`
+      : `Nenhuma nota encontrada com o filtro "${q}".`;
+    setStatus(msg, 'err');
+    return;
+  }
+
+  // Confirmação acima de 50 notas
+  if (notasNFe.length > 50) {
+    if (!confirm(`Vai gerar ${notasNFe.length} DANFEs do filtro "${q}". Confirma?`)) {
+      setStatus('Geração cancelada.', 'err');
+      return;
+    }
+  }
+
+  document.getElementById('loader').style.display = 'flex';
+  document.querySelector('#loader .loader-txt').textContent = `Gerando ${notasNFe.length} DANFE(s)…`;
+  await new Promise(r => setTimeout(r, 30));
+
+  try {
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+    let primeira = true;
+    let geradas = 0;
+    let errosGer = 0;
+
+    for (const nota of notasNFe) {
+      if (!nota.xmlRaw) { errosGer++; continue; }
+      if (!primeira) pdf.addPage();
+      primeira = false;
+      try {
+        const dados = extrairDadosDanfe(nota.xmlRaw);
+        desenharDanfe(pdf, dados);
+        geradas++;
+      } catch (e) {
+        console.warn(`Erro na nota ${nota['Numero NF']}:`, e.message);
+        errosGer++;
+        pdf.setFontSize(12);
+        pdf.text('Erro ao gerar DANFE desta nota:', 20, 20);
+        pdf.setFontSize(10);
+        pdf.text(`Arquivo: ${nota['Arquivo']}`, 20, 30);
+        pdf.text(`Erro: ${e.message}`, 20, 38);
+      }
+    }
+
+    // Nome do arquivo com o filtro (limpo pra filesystem)
+    const filtroSanitizado = q.replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '_').substring(0, 40);
+    const nomeArq = `DANFEs_${filtroSanitizado || 'consinco'}_${new Date().toISOString().substring(0,10)}.pdf`;
+    pdf.save(nomeArq);
+
+    let msg = `${geradas} DANFE(s) gerada(s) em ${nomeArq}`;
+    if (errosGer)  msg += ` · ${errosGer} erro(s)`;
+    if (ignoradas) msg += ` · ${ignoradas} NF3-e ignorada(s)`;
+    setStatus(msg, 'ok');
+  } catch (err) {
+    console.error(err);
+    setStatus('Erro ao gerar PDF: ' + err.message, 'err');
+  } finally {
+    document.getElementById('loader').style.display = 'none';
+    document.querySelector('#loader .loader-txt').textContent = 'Processando XMLs…';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// PREVIEW DE DANFE — abre modal ao clicar numa linha da Consinco
+// Gera o PDF em memória e exibe num iframe, sem baixar automaticamente.
+// ═══════════════════════════════════════════════════════════════════
+
+// Estado do preview atual (usado pelo botão "Baixar PDF" do modal)
+let _previewDanfeAtual = { blob: null, nomeArq: null, url: null };
+
+function previewDanfeConsinco(idNota) {
+  // Busca a nota pelo ID
+  const nota = dbNF.find(r => idNotaGas(r) === idNota);
+  if (!nota) { setStatus('Nota não encontrada.', 'err'); return; }
+
+  // Só NF-e modelo 55 gera DANFE
+  if (nota['Modelo'] !== 'NF-e') {
+    setStatus('DANFE só disponível para NF-e modelo 55 (esta é ' + (nota['Modelo'] || 'desconhecido') + ').', 'err');
+    return;
+  }
+
+  // Valida dependências
+  if (typeof window.jspdf === 'undefined' || !window.jspdf.jsPDF) {
+    setStatus('Biblioteca jsPDF não carregou. Recarregue a página.', 'err');
+    return;
+  }
+  if (typeof JsBarcode === 'undefined') {
+    setStatus('Biblioteca JsBarcode não carregou. Recarregue a página.', 'err');
+    return;
+  }
+  if (!nota.xmlRaw) { setStatus('XML da nota não está disponível.', 'err'); return; }
+
+  // Abre modal com spinner
+  const modal   = document.getElementById('modal-preview-danfe');
+  const iframe  = document.getElementById('modal-preview-danfe-iframe');
+  const loading = document.getElementById('modal-preview-danfe-loading');
+  const sub     = document.getElementById('modal-preview-danfe-sub');
+  sub.textContent = `NF ${nota['Numero NF'] || '—'} · ${nota['Nome Emitente'] || '—'} · ${nota['Arquivo'] || ''}`;
+  iframe.style.display = 'none';
+  iframe.src = 'about:blank';
+  loading.style.display = 'flex';
+  modal.style.display = 'flex';
+
+  // Libera URL antiga se existir
+  if (_previewDanfeAtual.url) {
+    try { URL.revokeObjectURL(_previewDanfeAtual.url); } catch (_) {}
+    _previewDanfeAtual = { blob: null, nomeArq: null, url: null };
+  }
+
+  // Gera a DANFE em memória (async pra não travar UI)
+  setTimeout(() => {
+    try {
+      const { jsPDF } = window.jspdf;
+      const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+      const dados = extrairDadosDanfe(nota.xmlRaw);
+      desenharDanfe(pdf, dados);
+
+      const blob = pdf.output('blob');
+      const url  = URL.createObjectURL(blob);
+      const nomeArq = `DANFE_${nota['Numero NF'] || 'nota'}_${nota['Nome Emitente']?.replace(/[^\w]/g,'_').substring(0,30) || ''}.pdf`;
+
+      _previewDanfeAtual = { blob, nomeArq, url };
+
+      // Mostra no iframe
+      iframe.src = url;
+      iframe.style.display = 'block';
+      loading.style.display = 'none';
+    } catch (e) {
+      console.error('Erro no preview DANFE:', e);
+      loading.innerHTML = `<div style="color:var(--hot);padding:20px;text-align:center;max-width:500px;">
+        <div style="font-size:24px;margin-bottom:8px;">⚠</div>
+        <strong>Erro ao gerar DANFE</strong>
+        <div style="font-size:11px;margin-top:8px;color:var(--mist);">${String(e.message || e).replace(/</g,'&lt;')}</div>
+      </div>`;
+    }
+  }, 30);
+}
+
+function fecharPreviewDanfe() {
+  const modal  = document.getElementById('modal-preview-danfe');
+  const iframe = document.getElementById('modal-preview-danfe-iframe');
+  if (modal) modal.style.display = 'none';
+  if (iframe) iframe.src = 'about:blank';
+  if (_previewDanfeAtual.url) {
+    try { URL.revokeObjectURL(_previewDanfeAtual.url); } catch (_) {}
+    _previewDanfeAtual = { blob: null, nomeArq: null, url: null };
+  }
+}
+
+function baixarDanfePreview() {
+  if (!_previewDanfeAtual.blob) {
+    setStatus('Preview ainda não gerado.', 'err');
+    return;
+  }
+  // Cria link temporário pra download
+  const a = document.createElement('a');
+  a.href = _previewDanfeAtual.url;
+  a.download = _previewDanfeAtual.nomeArq || 'DANFE.pdf';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+// Fecha modal com ESC e clique fora
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    const modal = document.getElementById('modal-preview-danfe');
+    if (modal && modal.style.display !== 'none') fecharPreviewDanfe();
+  }
+});
+(function() {
+  // clique fora fecha — liga uma vez quando o DOM estiver pronto
+  function liga() {
+    const modal = document.getElementById('modal-preview-danfe');
+    if (modal) modal.addEventListener('click', e => { if (e.target === modal) fecharPreviewDanfe(); });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', liga);
+  else liga();
+})();
+
 // inicializa UI de vínculo no carregamento
 document.addEventListener('DOMContentLoaded', () => {
   atualizarUiVinculoGas();
@@ -3264,6 +3989,1043 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 });
+
+
+
+// ════════════════════════════════════════════════════════════════════
+// UI DA CATEGORIA ÁGUA (integra com o módulo window.Agua)
+// ════════════════════════════════════════════════════════════════════
+
+// Labels padrão dos KPIs (salvos pra restaurar depois do modo água)
+const KPI_LABELS_PADRAO = {
+  'kpi-notas':  'Notas Fiscais',
+  'kpi-itens':  'Qtd Total',
+  'kpi-vtotal': 'Valor Total NF',
+  'kpi-lojas':  'Lojas únicas',
+  'kpi-emit':   'Emitentes',
+};
+
+function restaurarKpisPadrao() {
+  for (const id in KPI_LABELS_PADRAO) {
+    const kpi = document.getElementById(id);
+    if (!kpi) continue;
+    const lbl = kpi.parentElement?.querySelector('.kpi-label');
+    if (lbl) lbl.textContent = KPI_LABELS_PADRAO[id];
+  }
+}
+
+function atualizarKpisAgua() {
+  const dados = (window.Agua && window.Agua.getDados()) || [];
+  const setLbl = (id, txt) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const lbl = el.parentElement?.querySelector('.kpi-label');
+    if (lbl) lbl.textContent = txt;
+  };
+  // Re-rotula os 5 KPIs para água
+  setLbl('kpi-notas',  'Faturas');
+  setLbl('kpi-itens',  'Consumo m³');
+  setLbl('kpi-vtotal', 'Total a Pagar');
+  setLbl('kpi-lojas',  'Fornecedores');
+  setLbl('kpi-emit',   'Próx. Vencimento');
+
+  // Calcula valores
+  const soma = dados.reduce((s, r) => {
+    if (!r.total_pagar) return s;
+    const v = parseFloat(String(r.total_pagar).replace('R$ ', '').replace(/\./g, '').replace(',', '.'));
+    return s + (isNaN(v) ? 0 : v);
+  }, 0);
+  const cons = dados.reduce((s, r) => s + (r.consumo_m3 ? parseInt(r.consumo_m3) || 0 : 0), 0);
+  const fornec = new Set(dados.map(r => r.tipo).filter(Boolean)).size;
+  const vencs = dados.map(r => r.vencimento).filter(Boolean);
+  const hoje = new Date();
+  const parseDt = s => { const [d, m, y] = s.split('/'); return new Date(+y, +m - 1, +d); };
+  let proxVenc = '—';
+  try {
+    const futuros = vencs.filter(d => { try { return parseDt(d) >= hoje; } catch { return false; } });
+    if (futuros.length) proxVenc = futuros.reduce((a, b) => parseDt(a) <= parseDt(b) ? a : b);
+  } catch (_) {}
+
+  document.getElementById('kpi-notas').textContent  = dados.length.toLocaleString('pt-BR');
+  document.getElementById('kpi-itens').textContent  = cons.toLocaleString('pt-BR');
+  document.getElementById('kpi-vtotal').textContent = soma > 0
+    ? 'R$ ' + soma.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    : 'R$ 0';
+  document.getElementById('kpi-lojas').textContent  = fornec;
+  document.getElementById('kpi-emit').textContent   = proxVenc;
+
+  // Status geral
+  const dot = document.getElementById('status-dot');
+  const lbl = document.getElementById('status-label');
+  if (dados.length) {
+    dot.classList.remove('off');
+    lbl.textContent = `${dados.length} fatura(s) de água carregada(s)`;
+  } else {
+    dot.classList.add('off');
+    lbl.textContent = 'Sem dados';
+  }
+}
+
+// Render da tabela de faturas de água no painel Dados
+const AGUA_COLS = [
+  { key: 'arquivo',       label: 'Arquivo',       cls: 'td-desc' },
+  { key: 'tipo',          label: 'Fornecedor',    cls: '' },
+  { key: 'matricula',     label: 'Matrícula',     cls: 'td-code' },
+  { key: 'identificador', label: 'Identificador', cls: 'td-code' },
+  { key: 'numero_fatura', label: 'Nº Fatura',     cls: 'td-code' },
+  { key: 'data_emissao',  label: 'Emissão',       cls: 'td-date' },
+  { key: 'vencimento',    label: 'Vencimento',    cls: 'td-date' },
+  { key: 'total_pagar',   label: 'Total',         cls: 'td-val' },
+  { key: 'consumo_m3',    label: 'Consumo m³',    cls: 'td-num' },
+];
+
+function renderDadosAgua() {
+  const tbody = document.getElementById('tbody-dados');
+  const thead = document.getElementById('thead-dados');
+  if (!tbody || !thead) return;
+
+  const dados = (window.Agua && window.Agua.getDados()) || [];
+  const totalCols = AGUA_COLS.length + 1; // +1 pelo botão de remover
+
+  // Cabeçalho
+  thead.innerHTML = '<tr>' +
+    '<th style="width:36px;" title="Remover esta fatura">✕</th>' +
+    AGUA_COLS.map(c => `<th onclick="sortTable('dados','${c.key}')">${c.label}</th>`).join('') +
+    '</tr>';
+
+  // Filtro textual
+  const q = (document.getElementById('search-dados')?.value || '').toLowerCase();
+  let rows = dados;
+  if (q) rows = rows.filter(r => Object.values(r).some(v => String(v || '').toLowerCase().includes(q)));
+
+  // Ordenação
+  if (!sortState.dados) sortState.dados = { col: null, dir: 1 };
+  if (sortState.dados.col) {
+    rows = [...rows].sort((a, b) => {
+      const va = a[sortState.dados.col] ?? '';
+      const vb = b[sortState.dados.col] ?? '';
+      return sortState.dados.dir * String(va).localeCompare(String(vb), 'pt-BR', { numeric: true });
+    });
+  }
+
+  // Indicador de ordenação
+  thead.querySelectorAll('th').forEach((th, i) => {
+    th.classList.remove('sort-asc', 'sort-desc');
+    if (i > 0 && sortState.dados.col === AGUA_COLS[i - 1].key) {
+      th.classList.add(sortState.dados.dir === 1 ? 'sort-asc' : 'sort-desc');
+    }
+  });
+
+  document.getElementById('count-dados').textContent = `${rows.length} fatura(s)`;
+
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="${totalCols}" class="empty-cell"><span class="empty-icon">💧</span>Nenhuma fatura carregada.<br><span style="font-size:11px;">Clique em <b>📁 importar pasta de PDFs</b> pra selecionar uma pasta e processar todas as faturas dentro dela.</span></td></tr>`;
+    return;
+  }
+
+  const esc = s => String(s == null ? '—' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  tbody.innerHTML = rows.map(r => {
+    const nomeEsc = String(r.arquivo || '').replace(/'/g, "\\'");
+    const btnX = `<td><button title="Remover fatura" onclick="removerFaturaAgua('${nomeEsc}')" style="background:transparent;border:1px solid var(--rim2);color:var(--fog);width:22px;height:22px;border-radius:4px;cursor:pointer;font-size:12px;line-height:1;padding:0;" onmouseover="this.style.borderColor='var(--hot)';this.style.color='var(--hot)';" onmouseout="this.style.borderColor='var(--rim2)';this.style.color='var(--fog)';">✕</button></td>`;
+    const cells = AGUA_COLS.map(c => {
+      const v = r[c.key];
+      if (c.key === 'arquivo') {
+        // nome do arquivo + botão de debug inline
+        const nome = esc(v || '—');
+        return `<td class="td-desc" title="${nome}"><span style="cursor:pointer;" onclick="abrirDebugAgua('${nomeEsc}')">${nome}</span></td>`;
+      }
+      if (c.key === 'tipo') {
+        return `<td><span style="display:inline-block;background:rgba(0,201,255,0.12);color:var(--neon2);padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;letter-spacing:.3px;">${esc(v || 'DESCONHECIDO')}</span></td>`;
+      }
+      const txt = (v == null || v === '') ? '—' : esc(v);
+      return `<td class="${c.cls}">${txt}</td>`;
+    }).join('');
+    return `<tr>${btnX}${cells}</tr>`;
+  }).join('');
+}
+
+// Importar PDFs pela categoria água
+async function importarPdfsAgua(fileList) {
+  if (!fileList || !fileList.length) return;
+  if (!window.Agua) { setStatus('Módulo de água não carregado.', 'err'); return; }
+
+  document.getElementById('loader').style.display = 'flex';
+  document.querySelector('#loader .loader-txt').textContent = 'Carregando bibliotecas PDF…';
+
+  try {
+    await window.Agua.addFiles(fileList, {
+      onAdd: n => {
+        if (!n) setStatus('Nenhum PDF novo pra processar (arquivos já estão na lista).', 'err');
+      },
+      onProgress: ({ i, total, arq, phase }) => {
+        if (phase === 'start') {
+          document.querySelector('#loader .loader-txt').textContent =
+            `Processando ${i + 1}/${total}: ${arq.name}`;
+        }
+        // atualiza a tabela em tempo real
+        renderDadosAgua();
+        atualizarKpisAgua();
+      },
+      onDone: ({ ok, erros, total }) => {
+        let msg = `${ok} fatura(s) processada(s)`;
+        if (erros) msg += ` · ${erros} erro(s)`;
+        setStatus(msg, erros ? 'err' : 'ok');
+      }
+    });
+  } catch (e) {
+    console.error('[ÁGUA] erro:', e);
+    setStatus('Erro ao processar PDFs: ' + (e.message || e), 'err');
+  } finally {
+    document.getElementById('loader').style.display = 'none';
+    document.querySelector('#loader .loader-txt').textContent = 'Processando XMLs…';
+    renderDadosAgua();
+    atualizarKpisAgua();
+  }
+}
+
+function removerFaturaAgua(nome) {
+  if (!window.Agua) return;
+  window.Agua.removerArquivo(nome);
+  renderDadosAgua();
+  atualizarKpisAgua();
+}
+
+function limparDadosAgua() {
+  if (!window.Agua) return;
+  const n = window.Agua.getDados().length;
+  if (!n) { setStatus('Nada pra limpar na água.', 'err'); return; }
+  if (!confirm(`Remover todas as ${n} fatura(s) de água carregadas?`)) return;
+  window.Agua.limpar();
+  renderDadosAgua();
+  atualizarKpisAgua();
+  setStatus(`${n} fatura(s) de água removidas.`, 'ok');
+}
+
+// Modal de debug do texto extraído (pra diagnosticar parsing)
+function abrirDebugAgua(nomeArquivo) {
+  if (!window.Agua) return;
+  const texto = window.Agua.getTexto(nomeArquivo);
+  let modal = document.getElementById('modal-debug-agua');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'modal-debug-agua';
+    modal.style.cssText = 'position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;';
+    modal.innerHTML = `
+      <div style="background:var(--panel);border:1px solid var(--rim2);border-radius:12px;max-width:900px;width:90%;max-height:80vh;display:flex;flex-direction:column;">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 20px;border-bottom:1px solid var(--rim);">
+          <strong id="modal-debug-agua-title" style="color:var(--neon2);"></strong>
+          <button onclick="fecharDebugAgua()" style="background:transparent;border:1px solid var(--rim2);color:var(--fog);padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px;">✕ Fechar</button>
+        </div>
+        <div style="flex:1;overflow:auto;padding:16px 20px;">
+          <pre id="modal-debug-agua-pre" style="font-family:monospace;font-size:11px;color:var(--mist);white-space:pre-wrap;word-break:break-word;margin:0;"></pre>
+        </div>
+        <div style="display:flex;justify-content:flex-end;padding:10px 20px;border-top:1px solid var(--rim);">
+          <button onclick="copiarDebugAgua()" style="background:var(--panel2);border:1px solid var(--rim2);color:var(--ice);padding:6px 14px;border-radius:6px;cursor:pointer;font-size:11px;">⎘ Copiar texto</button>
+        </div>
+      </div>`;
+    modal.addEventListener('click', e => { if (e.target === modal) fecharDebugAgua(); });
+    document.body.appendChild(modal);
+  }
+  document.getElementById('modal-debug-agua-title').textContent = `DEBUG — ${nomeArquivo}`;
+  document.getElementById('modal-debug-agua-pre').textContent = texto || '(texto ainda não disponível)';
+  modal.style.display = 'flex';
+}
+function fecharDebugAgua() {
+  const m = document.getElementById('modal-debug-agua');
+  if (m) m.style.display = 'none';
+}
+function copiarDebugAgua() {
+  const pre = document.getElementById('modal-debug-agua-pre');
+  if (!pre) return;
+  navigator.clipboard.writeText(pre.textContent || '').then(
+    () => setStatus('Texto copiado.', 'ok'),
+    () => setStatus('Falha ao copiar.', 'err')
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════
+// MÓDULO ÁGUA — leitura e extração de dados de faturas em PDF
+// Integrado a partir do AquaSync (Wendell França). Isolado em IIFE
+// pra não conflitar com as variáveis globais do sistema de XMLs.
+// Expõe window.Agua.{addFiles, limpar, exportarExcel, abrirDebug, getDados}
+// ════════════════════════════════════════════════════════════════════
+(function(){
+  // ─── PDF.js (lazy-load sob demanda) ───
+  const PDFJS_CDN    = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+  const PDFJS_WORKER = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  const TESSERACT_CDN = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+
+  let pdfJsReady = false, tesseractReady = false;
+
+  function loadScript(src) {
+    return new Promise((res, rej) => {
+      const s = document.createElement('script');
+      s.src = src;
+      s.onload = () => res();
+      s.onerror = () => rej(new Error('Falha ao carregar ' + src));
+      document.head.appendChild(s);
+    });
+  }
+  async function loadPdfJs() {
+    if (pdfJsReady) return;
+    await loadScript(PDFJS_CDN);
+    pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER;
+    pdfJsReady = true;
+  }
+  async function loadTesseract() {
+    if (tesseractReady) return;
+    await loadScript(TESSERACT_CDN);
+    tesseractReady = true;
+  }
+
+  // ─── Estado interno do módulo ───
+  let arquivos = [];          // { file, name, status, tipo }
+  let resultados = [];        // objetos extraídos
+  const textoCache = {};      // { nomeArquivo: textoExtraído }
+
+  function getDados() { return resultados; }
+  function getArquivos() { return arquivos; }
+
+  // ─── Extração de texto do PDF (3 níveis: Y-coord, simples, OCR) ───
+  async function extrairTextoPDF(file) {
+    await loadPdfJs();
+    const buf = await file.arrayBuffer();
+
+    async function extrairComY(pdfDoc) {
+      let out = '';
+      for (let p = 1; p <= pdfDoc.numPages; p++) {
+        const page = await pdfDoc.getPage(p);
+        const content = await page.getTextContent();
+        const linhas = {};
+        for (const item of content.items) {
+          if (!item.str || !item.str.trim()) continue;
+          const y = Math.round(item.transform[5]);
+          if (!linhas[y]) linhas[y] = [];
+          linhas[y].push({ text: item.str, x: item.transform[4] });
+        }
+        const ys = Object.keys(linhas).map(Number).sort((a, b) => b - a);
+        for (const y of ys)
+          out += linhas[y].sort((a, b) => a.x - b.x).map(i => i.text).join(' ') + '\n';
+      }
+      return out;
+    }
+    async function extrairSimples(pdfDoc) {
+      let out = '';
+      for (let p = 1; p <= pdfDoc.numPages; p++) {
+        const page = await pdfDoc.getPage(p);
+        const content = await page.getTextContent({ normalizeWhitespace: true });
+        out += content.items.map(i => i.str).join(' ') + '\n';
+      }
+      return out;
+    }
+    async function extrairOCR(pdfDoc) {
+      await loadTesseract();
+      let out = '';
+      for (let p = 1; p <= pdfDoc.numPages; p++) {
+        const page = await pdfDoc.getPage(p);
+        const viewport = page.getViewport({ scale: 2.5 });
+        const canvas = document.createElement('canvas');
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        const ctx = canvas.getContext('2d');
+        await page.render({ canvasContext: ctx, viewport }).promise;
+        const result = await Tesseract.recognize(canvas, 'por', { logger: () => {} });
+        out += result.data.text + '\n';
+      }
+      return out;
+    }
+
+    const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+    let txt = await extrairComY(pdf);
+    if (txt.trim().length < 100) txt = await extrairSimples(pdf);
+    if (txt.trim().length < 100) {
+      console.log('[ÁGUA] OCR ativado para:', file.name);
+      try { txt = await extrairOCR(pdf); } catch (e) { console.error('[ÁGUA] OCR erro:', e); }
+    }
+    return txt.replace(/\bRS\b/g, 'R$').replace(/R\$(?!\s)/g, 'R$ ').replace(/[ \t]+/g, ' ').trim();
+  }
+
+  // ─── Helpers (primeiroValido, fmtValor, toDate, min/max) ───
+  function primeiroValido(texto, ...patterns) {
+    for (const p of patterns) {
+      const [pat, flags] = Array.isArray(p) ? p : [p, 'i'];
+      try {
+        const matches = [...texto.matchAll(new RegExp(pat, (flags || 'i') + 'g'))];
+        if (matches.length) {
+          const last = matches[matches.length - 1];
+          const val = last[1] || last[0];
+          if (val && val.trim()) return val.trim();
+        }
+      } catch (e) {}
+    }
+    return null;
+  }
+  function fmtValor(str) {
+    if (!str) return null;
+    try {
+      const v = parseFloat(String(str).replace(/\./g, '').replace(',', '.'));
+      if (isNaN(v) || v <= 0) return null;
+      return 'R$ ' + v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    } catch { return null; }
+  }
+  function toDate(s) { const [d, m, y] = s.split('/'); return new Date(+y, +m - 1, +d); }
+  function minData(arr) { return arr.reduce((a, b) => toDate(a) <= toDate(b) ? a : b); }
+  function maxData(arr) { return arr.reduce((a, b) => toDate(a) >= toDate(b) ? a : b); }
+
+function detectarTipo(txt) {
+  const u = txt.toUpperCase();
+  if (u.includes('COPASA')||u.includes('COMPANHIA DE SANEAMENTO')) return 'COPASA';
+  if (u.includes('D.M.A.E')||u.includes('DMAE')||u.includes('UBERLANDIA')||u.includes('UBERLÂNDIA')||u.includes('DEPARTAMENTO MUNICIPAL DE')) return 'DMAE';
+  if (u.includes('SAE - SUPERINTEN')||u.includes('SUPERINTENDENCIA DE AGUA')||u.includes('SAE ARARAQUARA')) return 'SAE';
+  if (u.includes('VALADARES SPE')||u.includes('AGUAS DE GOVERNADOR')||u.includes('ÁGUAS DE GOVERNADOR')) return 'AGUAS_GOV_VALADARES';
+  if (u.includes('AGUAS DE PARA DE MINAS')||u.includes('ÁGUAS DE PARÁ DE MINAS')||u.includes('AGUASDEPAR')||u.includes('PARÁ DE MINAS')||u.includes('PARA DE MINAS')) return 'AGUAS_PARA_DE_MINAS';
+  if (u.includes('CODAU')||u.includes('COMPANHIA OPERACIONAL DE DESENVOLVIMENTO')||u.includes('SANEAMENTO E ACOES URBANAS')||u.includes('SANEAMENTO E AÇÕES URBANAS')||(u.includes('IDENTIFICADOR PARA DEBITO AUTOMATICO')&&u.includes('UBERABA')&&u.includes('VALOR DE AGUA'))) return 'CODAU';
+  if (u.includes('DEMAE')||(u.includes('DEPARTAMENTO MUNICIPAL DE')&&u.includes('CAMPO BELO'))) return 'DEMAE_CAMPO_BELO';
+    if (u.includes('SAAE')&&(u.includes('SETE LAGOAS')||u.includes('SETELAGOAS'))) return 'SAAE_SETE_LAGOAS';
+  // SAAE Itabira — nem sempre tem a sigla "SAAE" no texto; identifica por "ITABIRA" + marcadores únicos
+  if (u.includes('ITABIRA') && (
+        u.includes('SAAE') ||
+        u.includes('SERVICO AUTONOMO') ||
+        u.includes('SERVIÇO AUTÔNOMO') ||
+        (u.includes('COD. LIGACAO') || u.includes('COD. LIGAÇÃO')) ||
+        u.includes('ID. ELETR')
+      )) return 'SAAE_ITABIRA';
+  if (u.includes('SAAE')||u.includes('SERVICO AUTONOMO')||u.includes('SERVIÇO AUTÔNOMO')) return 'SAAE';
+  return 'DESCONHECIDO';
+}
+
+// ===================== EXTRAÇÃO POR TIPO =====================
+function extrairCampos(texto, tipo) {
+  let matricula=null, identificador=null, numero_fatura=null;
+  let data_emissao=null, vencimento=null, total=null, consumo=null;
+
+  if (tipo === 'COPASA') {
+    // Matrícula: padrão clássico NNNNNNNN-N ou com espaços "0 016 894 475 8"
+    matricula = primeiroValido(texto,
+      [String.raw`\b(\d{8}-\d)\b`],
+      [String.raw`MATR[ÍI]CULA[:\s]*(\d{8}-\d)`],
+      [String.raw`MAT[:\s]*(\d{8}-\d)`]
+    );
+    // Se não achou com hífen, tenta padrão com espaços (remove espaços depois)
+    if (!matricula) {
+      const msp = texto.match(/MATR[ÍI]CULA[^\n]{0,10}([\d\s]{14,20})/i);
+      if (msp) matricula = msp[1].trim().replace(/\s+/g,'');
+    }
+
+    identificador = primeiroValido(texto,
+      [String.raw`\b(\d{3}\.\d{2}\.\d{8}-\d)\b`],
+      [String.raw`IDENTIFICADOR[:\s]*(\d{3}\.\d{2}\.\d{8}-\d)`]
+    );
+
+    // Fatura: segundo código diferente da matrícula
+    const mats = [...texto.matchAll(/\b(\d{8}-\d)\b/g)].map(m=>m[1]);
+    numero_fatura = mats.find(f=>f!==matricula)||mats[0]||null;
+
+    const datas = [...texto.matchAll(/\b(\d{2}\/\d{2}\/\d{4})\b/g)].map(m=>m[1]);
+    data_emissao = primeiroValido(texto,
+      [String.raw`(?:DATA\s+)?EMISS[ÃA]O[^a-z]*(\d{2}/\d{2}/\d{4})`],
+      [String.raw`DATA\s+DA\s+EMISS[ÃA]O[:\s]*(\d{2}/\d{2}/\d{4})`],
+      [String.raw`Quando foi emitida\?[^\n]*\n[^\n]*(\d{2}/\d{2}/\d{4})`]
+    ) || (datas.length ? minData(datas) : null);
+
+    vencimento = primeiroValido(texto,
+      [String.raw`VENC(?:IMENTO)?[^\n]*(\d{2}/\d{2}/\d{4})`],
+      [String.raw`DATA\s*VENC[^\n]*(\d{2}/\d{2}/\d{4})`]
+    ) || (datas.length ? maxData(datas) : null);
+
+    // Total — cascata
+    let totRaw = primeiroValido(texto,
+      [String.raw`TOTAL\s+A\s+PAGAR[^\n]*R\$\s*([\d\.]+,\d{2})`],
+      [String.raw`TOTAL\s+A\s+PAGAR[^\n]*\*+R\$\s*([\d\.]+,\d{2})`],
+      [String.raw`\*+R\$\s*([\d\.]+,\d{2})`],
+      [String.raw`TOTAL\s*\(R\$\)\s*R\$\s*([\d\.]+,\d{2})`],
+      [String.raw`(?:Total a pagar|Valor a pagar)\s*R\$\s*([\d\.]+,\d{2})`]
+    );
+    if (!totRaw) {
+      const m = texto.match(/\d{8}-\d\s+\w+\/\d{4}\s+\d{2}\/\d{2}\/\d{4}\s+R\$\s*([\d\.]+,\d{2})/i);
+      if (m) totRaw = m[1];
+    }
+    if (!totRaw) {
+      const all = [...texto.matchAll(/R\$\s*(\d{1,3}(?:\.\d{3})+,\d{2})/g)];
+      if (all.length) totRaw = all[all.length-1][1];
+    }
+    total = fmtValor(totRaw);
+
+    // Consumo COPASA — vários formatos:
+    // 1) "CONSUMO MEDIDO/FATURADO NNN"
+    // 2) "NNN m³" ou "NNNm³"
+    // 3) "NNNm " — formato sem símbolo (ex: "272m")
+    // 4) "NNN.000 litros" — converte de litros para m³
+    consumo = primeiroValido(texto,
+      [String.raw`CONSUMO\s+(?:MEDIDO|FATURADO)\s+(\d+)`],
+      [String.raw`(\d+)\s*m[³3u]`],
+      [String.raw`(\d+)m\s+\(`],
+      [String.raw`CONSUMO[^a-z]*(\d+)`]
+    );
+    // Fallback litros: "272.000 litros" → divide por 1000
+    if (!consumo) {
+      const litM = texto.match(/(\d{1,3}\.\d{3})\s*(?:litros|l\b)/i);
+      if (litM) consumo = String(parseInt(litM[1].replace('.','')) / 1000);
+    }
+  }
+
+  else if (tipo === 'DMAE') {
+    // Matrícula = I.D.A — pode estar na mesma linha ou na linha seguinte
+    // Padrões: "I.D.A: 000240969-0" ou "I.D.A:\n000240969-0"
+    matricula = primeiroValido(texto,
+      [String.raw`I\.D\.A[:\s]+([\d-]+)`],
+      [String.raw`I\.D\.A\.?[^\n]*\n\s*([\d-]+)`],
+      [String.raw`IDA[:\s]+([\d-]+)`]
+    );
+
+    // Identificador = Hidrômetro
+    identificador = primeiroValido(texto,
+      [String.raw`Hidr[ôo]metro[:\s]*([A-Z0-9]+)`],
+      [String.raw`HIDR[ÔO]METRO[:\s]*([A-Z0-9]+)`]
+    );
+
+    // Nº Fatura = Código de Processamento
+    // Label e valor podem estar em linhas separadas
+    numero_fatura = primeiroValido(texto,
+      [String.raw`C[oó]digo de Processamento[:\s]*([\d-]+)`],
+      [String.raw`C[ÓO]DIGO.*?PROCESSAMENTO[:\s]*([\d-]+)`],
+      [String.raw`C[oó]digo de Processamento[^\n]*\n\s*([\d-]+)`]
+    );
+    // Fallback: padrão "0300-NNNNNNNNNN-NN-N" que é único do DMAE
+    if (!numero_fatura) {
+      const fatM = texto.match(/\b(0300-[\d]+-[\d]{2}-[\d])\b/);
+      if (fatM) numero_fatura = fatM[1];
+    }
+
+    // Emissão — "Data de Emissão" seguida ou precedida por datas na mesma linha
+    // Formato: "Vencimento Original Data de Emissão\n12/04/2026 27/03/2026"
+    data_emissao = primeiroValido(texto,
+      [String.raw`Data de Emiss[ãa]o[:\s]*(\d{2}/\d{2}/\d{4})`],
+      [String.raw`DATA\s+DA\s+EMISS[ÃA]O[:\s]*(\d{2}/\d{2}/\d{4})`]
+    );
+    // Fallback: linha com duas datas "DD/MM/AAAA DD/MM/AAAA" — segunda é emissão
+    if (!data_emissao) {
+      const duasM = texto.match(/(\d{2}\/\d{2}\/\d{4})\s+(\d{2}\/\d{2}\/\d{4})/);
+      if (duasM) data_emissao = duasM[2]; // segunda data = emissão
+    }
+
+    // Vencimento
+    vencimento = primeiroValido(texto,
+      [String.raw`Vencimento Original[:\s]*(\d{2}/\d{2}/\d{4})`],
+      [String.raw`VENC(?:IMENTO)?[^\n]*(\d{2}/\d{2}/\d{4})`]
+    );
+    // Fallback: primeira das duas datas em sequência = vencimento
+    if (!vencimento) {
+      const duasM = texto.match(/(\d{2}\/\d{2}\/\d{4})\s+(\d{2}\/\d{2}\/\d{4})/);
+      if (duasM) vencimento = duasM[1]; // primeira data = vencimento
+    }
+
+    // Total: "VALOR TOTAL A PAGAR R$ X" ou "Valor a Pagar R$ X"
+    const totRaw = primeiroValido(texto,
+      [String.raw`VALOR\s*TOTAL\s*A\s*PAGAR[:\s]*R\$\s*([\d\.]+,\d{2})`],
+      [String.raw`Valor\s*(?:Total\s*)?[Aa]\s*[Pp]agar[:\s]*R\$\s*([\d\.]+,\d{2})`],
+      [String.raw`VALOR\s*A\s*PAGAR[:\s]*R\$\s*([\d\.]+,\d{2})`]
+    );
+    total = fmtValor(totRaw);
+
+    consumo = primeiroValido(texto,
+      [String.raw`(\d+)\s*m[³3]`],
+      [String.raw`CONSUMO[^a-z]*(\d+)`]
+    ) || '0';
+  }
+
+  else if (tipo === 'SAE') {
+    // Matrícula: Cod. ligação (ex: 42048-9)
+    matricula = primeiroValido(texto,
+      [String.raw`Cod\.?\s*liga[çc][ãa]o[:\s]*([\d-]+)`],
+      [String.raw`MATR[ÍI]CULA[:\s]*(\d+)`]
+    );
+    // Identificador: Id. eletrônico (ex: 91542048@27)
+    identificador = primeiroValido(texto,
+      [String.raw`Id\.\s*eletr[ôo]nico[:\s]*([\w@.]+)`],
+      [String.raw`HIDR[ÔO]METRO\s+([A-Z0-9]+)`]
+    );
+    // Nº Fatura: padrão NNNNNMMAAAA-N (ex: 42048012026-0)
+    numero_fatura = primeiroValido(texto,
+      [String.raw`\b(\d{11}-\d)\b`],
+      [String.raw`2[ªa]\s*VIA[:\s]*(\d+)`]
+    );
+    // Emissão: data junto com hora "DD/MM/AAAA - HH:MM" ou "DD/MM/AAAA HH:MM"
+    const emissaoM = texto.match(/(\d{2}\/\d{2}\/\d{4})\s*[-–]?\s*\d{2}:\d{2}/);
+    data_emissao = emissaoM ? emissaoM[1] : primeiroValido(texto,
+      [String.raw`DATA\s*D[AE]\s*(?:LEITURA|EMISS[ÃA]O)[:\s]*(\d{2}/\d{2}/\d{4})`]
+    );
+    // Vencimento: label VENCIMENTO seguido de data (pode estar na mesma linha que VALOR A PAGAR)
+    vencimento = primeiroValido(texto,
+      [String.raw`VENCIMENTO[^\d]*(\d{2}/\d{2}/\d{4})`],
+      [String.raw`VENC(?:IMENTO)?[:\s]*(\d{2}/\d{2}/\d{4})`]
+    );
+    // Total SAE: "R$ 11 874,23" — pode estar em linha separada do label
+    // Busca todos os "R$ NNN NNN,NN" com espaços e pega o maior valor
+    const totMatches = [...texto.matchAll(/R\$\s*([\d][\d\s]{2,},[\d]{2})/g)];
+    if (totMatches.length) {
+      const valores = totMatches.map(m => parseFloat(m[1].replace(/\s/g,'').replace(',','.')));
+      const maiorIdx = valores.indexOf(Math.max(...valores));
+      total = fmtValor(totMatches[maiorIdx][1].replace(/\s/g,''));
+    }
+    if (!total) {
+      const totRaw = primeiroValido(texto,
+        [String.raw`R\$\s*([\d\.]+,\d{2})`]
+      );
+      total = fmtValor(totRaw);
+    }
+    // Consumo: CONS. REAL NNNm3 (ex: 710m3)
+    consumo = primeiroValido(texto,
+      [String.raw`CONS\.?\s*REAL\s*(\d+)`],
+      [String.raw`(\d+)m3`],
+      [String.raw`(\d+)\s*m[³3]`],
+      [String.raw`CONSUMO[^a-z]*(\d+)`]
+    );
+  }
+
+  else if (tipo === 'AGUAS_GOV_VALADARES') {
+    matricula = primeiroValido(texto,
+      [String.raw`MATR[ÍI]CULA\s+(\d{6,10})`],
+      [String.raw`MATR[ÍI]CULA[:\s]*(\d{6,10})`],
+      [String.raw`CONTA[:\s]+(\d{6,10})`]
+    );
+    identificador = primeiroValido(texto,
+      [String.raw`HIDR[ÔO]METRO[:\s.-]*([A-Z0-9-]+)`],
+      [String.raw`MEDIDOR[:\s]*([A-Z0-9-]+)`],
+      [String.raw`[A-Z]\d{2}[A-Z]{2}\d+`]
+    );
+    numero_fatura = primeiroValido(texto,
+      [String.raw`2[ªa]\s*VIA[:\s]*(\d+)`],
+      [String.raw`FATURA\s*N[°º]?[:\s]*(\d+)`],
+      [String.raw`N[°º]\.?\s*DA\s*FATURA[:\s]*(\d+)`],
+      [String.raw`FATURA[:\s]*(\d{4,})`]
+    );
+    vencimento = primeiroValido(texto,
+      [String.raw`VENC(?:IMENTO)?[^\n]*(\d{2}/\d{2}/\d{4})`],
+      [String.raw`DATA\s+VENC[^a-z]*(\d{2}/\d{2}/\d{4})`]
+    );
+    data_emissao = primeiroValido(texto,
+      [String.raw`(?:DATA\s+)?EMISS[ÃA]O[^a-z]*(\d{2}/\d{2}/\d{4})`],
+      [String.raw`DATA\s+DA\s+EMISS[ÃA]O[:\s]*(\d{2}/\d{2}/\d{4})`]
+    );
+    const totM = texto.match(/TOTAL\s+A\s+PAGAR\s+([\d\.]+,\d{2})/i);
+    let totRaw = totM ? totM[1] : primeiroValido(texto,
+      [String.raw`VALOR\s*(?:A\s+)?PAGAR[^a-z]*R\$?\s*([\d\.]+,\d{2})`],
+      [String.raw`R\$\s*([\d\.]+,\d{2})`]
+    );
+    total = fmtValor(totRaw);
+    consumo = primeiroValido(texto,
+      [String.raw`(\d+)\s*m[³3]`],
+      [String.raw`CONSUMO[^a-z]*(\d+)`],
+      [String.raw`(\d+)\s*MEDIDO`]
+    );
+  }
+
+  else if (tipo === 'AGUAS_PARA_DE_MINAS') {
+    // Matrícula — evita código de barras (11+ dígitos)
+    const matMatches = [...texto.matchAll(/\b(\d{7,10})\s*-\s*(\d)\b/g)];
+    if (matMatches.length) {
+      const m = matMatches[matMatches.length-1];
+      matricula = `${m[1]}-${m[2]}`;
+    }
+    identificador = primeiroValido(texto,
+      [String.raw`(A19AA\d+)`],
+      [String.raw`HIDR[ÔO]METRO[:\s]*([A-Z0-9]+)`],
+      [String.raw`([A-Z]\d{2}[A-Z]{2}\d+)`]
+    );
+    numero_fatura = primeiroValido(texto,
+      [String.raw`\b(\d{7})\s+\d{2}/\d{4}`],
+      [String.raw`FATURA\s*N[°º]?[:\s]*(\d+)`],
+      [String.raw`(\d{7})`]
+    );
+    // Emissão e Vencimento — label explícito primeiro
+    data_emissao = primeiroValido(texto,
+      [String.raw`Data\s*(?:de\s*)?Emiss[ãa]o[:\s]*(\d{2}/\d{2}/\d{4})`],
+      [String.raw`DATA\s+DA\s+EMISS[ÃA]O[:\s]*(\d{2}/\d{2}/\d{4})`]
+    );
+    vencimento = primeiroValido(texto,
+      [String.raw`Vencimento[:\s]*(\d{2}/\d{2}/\d{4})`],
+      [String.raw`VENC(?:IMENTO)?[^a-z]*(\d{2}/\d{2}/\d{4})`]
+    );
+    // Fallback 1: rodapé "NNNNNNN MM/AAAA DD/MM/AAAA DD/MM/AAAA" — emissão=1ª, vencimento=2ª
+    if (!data_emissao || !vencimento) {
+      const dvM = texto.match(/\b\d{7}\b\s+\d{2}\/\d{4}\s+(?:[\d\.,]+\s+)?(\d{2}\/\d{2}\/\d{4})\s+(\d{2}\/\d{2}\/\d{4})/);
+      if (dvM) { data_emissao = data_emissao || dvM[1]; vencimento = vencimento || dvM[2]; }
+    }
+    // Fallback 2: texto desorganizado — busca padrão "13/02/2026 ... 05/03/2026" 
+    // onde emissão < vencimento e ambas no mesmo trecho
+    if (!data_emissao || !vencimento) {
+      const toD = s => { const [d,m,y]=s.split('/'); return new Date(+y,+m-1,+d); };
+      const datas = [...texto.matchAll(/\b(\d{2}\/\d{2}\/\d{4})\b/g)].map(m=>m[1]);
+      // Filtra datas únicas e ordena
+      const unicas = [...new Set(datas)].filter(d => { try { toD(d); return true; } catch { return false; } });
+      if (unicas.length >= 2) {
+        // Pega as duas datas mais próximas entre si que aparecem em sequência no texto
+        const rodape = texto.match(/(\d{2}\/\d{2}\/\d{4})\s+(\d{2}\/\d{2}\/\d{4})/);
+        if (rodape) {
+          const d1 = toD(rodape[1]), d2 = toD(rodape[2]);
+          if (d1 < d2) { data_emissao = data_emissao || rodape[1]; vencimento = vencimento || rodape[2]; }
+          else         { data_emissao = data_emissao || rodape[2]; vencimento = vencimento || rodape[1]; }
+        }
+      }
+    }
+    const totRaw = primeiroValido(texto,
+      [String.raw`Total\s*a\s*Pagar\s*\(R\$\)[:\s]*([\d\.]+,\d{2})`],
+      [String.raw`(?:TOTAL|VALOR)\s*(?:A\s+)?PAGAR[^a-z]*R\$?\s*([\d\.]+,\d{2})`],
+      [String.raw`R\$\s*([\d\.]+,\d{2})`]
+    );
+    total = fmtValor(totRaw);
+    consumo = primeiroValido(texto,
+      [String.raw`(\d+)\s*m[³3]`],
+      [String.raw`(\d+)\s+MEDIDO`],
+      [String.raw`CONSUMO[^a-z]*(\d+)`]
+    );
+  }
+
+  else if (tipo === 'SAAE') {
+    matricula = primeiroValido(texto,
+      [String.raw`CONTA\s*(?:N[º°Oo]|N[uú]mero)[:\s]*(\d+)`],
+      [String.raw`CONTA\s+N[^\n]{0,5}[\s:]+(\d{4,})`],
+      [String.raw`CONTA\s*N[°º]?\s*(\d+)`],
+      [String.raw`REFERÊNCIA\s*(\d+)`]
+    );
+    identificador = primeiroValido(texto,
+      [String.raw`HIDR[ÔO]METRO[:\s]*([A-Z0-9]+)`],
+      [String.raw`MEDIDOR[:\s]*([A-Z0-9]+)`]
+    );
+    numero_fatura = primeiroValido(texto,
+      [String.raw`\b(\d{5,}0\d{4}-\d)\b`],
+      [String.raw`REFERÊNCIA[:\s]*(\d{5,}-\d)`],
+      [String.raw`2[ªa]\s*VIA[:\s]*(\d+)`]
+    );
+    data_emissao = primeiroValido(texto,
+      [String.raw`DATA\s*D[AE]\s*EMISS[ÃA]O[:\s]*(\d{2}/\d{2}/\d{4})`],
+      [String.raw`DATA\s+DA\s+EMISS[ÃA]O[:\s]*(\d{2}/\d{2}/\d{4})`]
+    );
+    vencimento = primeiroValido(texto,
+      [String.raw`VENCIMENTO[:\s]*(\d{2}/\d{2}/\d{4})`],
+      [String.raw`VENC(?:IMENTO)?[^a-z]*(\d{2}/\d{2}/\d{4})`]
+    );
+    const totM = texto.match(/(?:VALOR\s+)?TOTAL\s+R\$\s*([\d\.]+,\d{2})/i)
+              || texto.match(/TOTAL[^\n]{0,10}\nR\$\s*([\d\.]+,\d{2})/i);
+    total = totM ? fmtValor(totM[1]) : null;
+    consumo = primeiroValido(texto,
+      [String.raw`\bCONSUMO\b[\s\n]+(\d+)\b`],
+      [String.raw`(\d+)\s*m[³3]`],
+      [String.raw`CONSUMO[^\n]*\n[^\n]*\n?\s*(\d+)\b`]
+    );
+  }
+
+  else if (tipo === 'CODAU') {
+    // CODAU - Companhia Operacional de Desenvolvimento, Saneamento e Ações Urbanas (Uberaba/MG)
+    matricula = primeiroValido(texto,
+      [String.raw`IDENTIFICADOR\s+PARA\s+D[EÉ]BITO\s+AUTOMATICO\s*:\s*(\d{7,})`],
+      [String.raw`^(\d{7,10})$`, 'm']
+    );
+    identificador = primeiroValido(texto,
+      [String.raw`\b([A-Z]\d{2}[A-Z]{2}\d{7})\b`],
+      [String.raw`\d{2}\.\d{3}\.\d{3}\s+([A-Z][A-Z0-9]{5,})\b`]
+    );
+    numero_fatura = primeiroValido(texto,
+      [String.raw`\b(\d{2}\.\d{3}\.\d{3})\b`]
+    );
+    data_emissao = primeiroValido(texto,
+      [String.raw`\d{2}\.\d{3}\.\d{3}\s+[A-Z0-9]+\s+[A-Z]{2}\s+\d+\s+(\d{2}/\d{2}/\d{4})`]
+    );
+    if (!data_emissao) {
+      const dts = [...texto.matchAll(/\b(\d{2}\/\d{2}\/\d{4})\b/g)].map(m => m[1]);
+      if (dts.length) data_emissao = dts[0];
+    }
+    vencimento = primeiroValido(texto,
+      [String.raw`(\d{2}\/\d{2}\/\d{4})\s+00:00:00`]
+    );
+    if (!vencimento) {
+      const dts = [...texto.matchAll(/\b(\d{2}\/\d{2}\/\d{4})\b/g)].map(m => m[1]);
+      if (dts.length) vencimento = dts[dts.length - 1];
+    }
+    const totCodauM = texto.match(/00:00:00\s*\n([\d\.]+,\d{2})\n/)
+                   || texto.match(/00:00:00\s+([\d\.]+,\d{2})/)
+                   || texto.match(/^([\d\.]+,\d{2})$/m);
+    total = totCodauM ? fmtValor(totCodauM[1]) : null;
+    consumo = primeiroValido(texto,
+      [String.raw`\d{2}\/\d{2}\/\d{4}\n(\d{1,4})\n(?:NORMAL|SOCIAL|COMERCIAL|INDUSTRIAL)`]
+    );
+    if (!consumo) {
+      const linhas = texto.split('\n');
+      for (const l of linhas) {
+        const m = l.trim().match(/^(\d{1,4})$/);
+        if (m) { const v = parseInt(m[1]); if (v >= 1 && v <= 9999) { consumo = m[1]; break; } }
+      }
+    }
+  }
+
+  else if (tipo === 'DEMAE_CAMPO_BELO') {
+    // DEMAE - Departamento Municipal de Água e Esgoto - Campo Belo/MG
+    matricula = primeiroValido(texto,
+      [String.raw`C[ÓO]DIGO\s+ID\s*[:\s]+(\d+)`]
+    );
+    identificador = primeiroValido(texto,
+      [String.raw`HIDR[ÔO]METRO\s*\n\s*([A-Z0-9]+)`],
+      [String.raw`HIDR[ÔO]METRO[:\s]+([A-Z0-9]+)`]
+    );
+    numero_fatura = primeiroValido(texto,
+      [String.raw`\bCF:\s*(\d{10,})`]
+    );
+    data_emissao = primeiroValido(texto,
+      [String.raw`DATA\s+DA\s+LEITURA:\s*(\d{2}/\d{2}/\d{4})`]
+    );
+    vencimento = primeiroValido(texto,
+      [String.raw`VENCIMENTO:\s*(\d{2}/\d{2}/\d{4})`]
+    );
+    const totDemaeM = texto.match(/VALOR\s+TOTAL\s+R\$\s*:\s*([\d\.]+,\d{2})/i);
+    total = totDemaeM ? fmtValor(totDemaeM[1]) : null;
+    const leitM = texto.match(/LEITURA ATUAL LEITURA ANTERIOR CONSUMO\n(\d+)\s+(\d+)\s+(\d+)/i)
+               || texto.match(/^(\d+)\s+(\d+)\s+(\d+)$/m);
+    consumo = leitM ? leitM[3] : null;
+  }
+
+    else if (tipo === 'SAAE_ITABIRA') {
+    // SAAE Itabira — layout próprio "autoatendimento.contaseconsumo.com.br"
+    // Mapeamento confirmado com fatura real:
+    //   "2° VIA DA CONTA\n37336032026-2"         → Nº Fatura
+    //   "Cod. ligação: 37336-5"                  → Identificador
+    //   "Id. eletrônico: 50537336@P"             → Matrícula
+    //   "DATA DE LEITURA\n23/04/2026"            → Emissão
+    //   "VENCIMENTO\n10/05/2026"                 → Vencimento
+    //   "VALOR A PAGAR\nR$77,52"                 → Total
+    //   "CONS. FATURADO\n5m3"                    → Consumo
+
+    // Matrícula = Cod. ligação (formato NNNNN-N)
+    matricula = primeiroValido(texto,
+      [String.raw`Cod\.?\s*liga[çc][ãa]o[:\s]*([\d]+-[\d]+)`],
+      [String.raw`COD\.?\s*LIGA[ÇC][ÃA]O[:\s]*([\d]+-[\d]+)`]
+    );
+
+    // Identificador = Id. eletrônico (pode ter @ e letras)
+    identificador = primeiroValido(texto,
+      [String.raw`Id\.?\s*eletr[ôo]nico[:\s]*([A-Z0-9@]+)`],
+      [String.raw`ID\.?\s*ELETR[ÔO]NICO[:\s]*([A-Z0-9@]+)`]
+    );
+
+    // Nº Fatura = número logo após "2° VIA DA CONTA" (formato longo NNNNNNNNNNN-N)
+    numero_fatura = primeiroValido(texto,
+      [String.raw`2[°º]\s*VIA\s+DA\s+CONTA[\s\S]{0,30}?(\d{10,}-\d)`],
+      [String.raw`VIA\s+DA\s+CONTA[\s\S]{0,30}?(\d{10,}-\d)`]
+    );
+    // Fallback: qualquer número longo com traço no doc (evita pegar dos boletos do fim)
+    if (!numero_fatura) {
+      const m = texto.match(/\b(\d{10,12}-\d)\b/);
+      if (m) numero_fatura = m[1];
+    }
+
+    // Emissão = DATA DE LEITURA (não "DATA LEITURA ORIG" e não "DATA PROX LEITURA")
+    data_emissao = primeiroValido(texto,
+      [String.raw`DATA\s+DE\s+LEITURA[^\n]*\n\s*(\d{2}/\d{2}/\d{4})`]
+    );
+
+    // Vencimento
+    vencimento = primeiroValido(texto,
+      [String.raw`VENCIMENTO[^\n]*\n\s*(\d{2}/\d{2}/\d{4})`],
+      [String.raw`VENCIMENTO[:\s]+(\d{2}/\d{2}/\d{4})`]
+    );
+
+    // Total = VALOR A PAGAR (formato "R$77,52" colado ou com espaço)
+    // Precisa ser robusto a variações do pdf.js: às vezes o label e o valor ficam em
+    // linhas separadas, às vezes agrupados. Usa padrão não-guloso e âncora em "R$".
+    let totRaw = primeiroValido(texto,
+      // label seguido diretamente de R$NNN,NN (com possível quebra de linha entre)
+      [String.raw`VALOR\s+A\s+PAGAR\s*R?\$\s*([\d\.]+,\d{2})`],
+      // label + valor na mesma linha
+      [String.raw`VALOR\s+A\s+PAGAR[\s\S]{0,40}?R\$\s*([\d\.]+,\d{2})`],
+      // fallback sem R$ (caso tenha sido extraído separado)
+      [String.raw`VALOR\s+A\s+PAGAR[\s\S]{0,40}?(\d{1,3}(?:\.\d{3})*,\d{2})`]
+    );
+    total = fmtValor(totRaw);
+
+    // Consumo = CONS. FATURADO (prioritário) ou CONS. REAL (fallback).
+    // O pdf.js pode extrair em dois layouts:
+    //  (A) Linha única label + linha única valores (tabular):
+    //      "L. ANTERIOR L. ATUAL CONS. REAL CONS. FATURADO MÉDIA OCORRÊNCIA
+    //       2224        2229     5m3        5m3            3m3   0"
+    //      → valor FATURADO é o 4º número da linha abaixo
+    //      → valor REAL é o 3º
+    //  (B) Cada label/valor em linhas separadas: "CONS. FATURADO\n5m3"
+    //      → valor vem logo após o label
+
+    // Tenta layout (A) primeiro — linha de labels com CONS. REAL e CONS. FATURADO juntos
+    (function() {
+      const mTab = texto.match(/L\.?\s*ANTERIOR\s+L\.?\s*ATUAL\s+CONS\.?\s*REAL\s+CONS\.?\s*FATURADO[^\n]*\n([^\n]+)/i);
+      if (mTab) {
+        // linha de valores tem estrutura: L.ANT L.ATUAL REAL-m3 FATURADO-m3 MÉDIA-m3 OCORR
+        //   ex: "2224 2229 5m3 5m3 3m3 0"
+        // Capturamos só os números seguidos de "m" (ignora L.ANT/L.ATUAL/OCORR que não têm m).
+        //   → [REAL, FATURADO, MÉDIA] nessa ordem
+        const toks = [...mTab[1].matchAll(/(\d+)\s*m[³3]/g)].map(x => x[1]);
+        if (toks.length >= 2) { consumo = toks[1]; return; } // FATURADO (prioritário)
+        if (toks.length >= 1) { consumo = toks[0]; return; } // REAL (fallback)
+      }
+    })();
+
+    // Layout (B) — label e valor em linhas separadas OU agrupados próximos
+    if (!consumo) {
+      consumo = primeiroValido(texto,
+        [String.raw`CONS\.?\s*FATURADO[\s\S]{0,20}?(\d+)\s*m[³3]`],
+        [String.raw`CONS\.?\s*REAL[\s\S]{0,20}?(\d+)\s*m[³3]`]
+      );
+    }
+  }
+
+    else if (tipo === 'SAAE_SETE_LAGOAS') {
+    // SAAE Sete Lagoas
+    // Emissao: logo apos "SETE LAGOAS - MG"
+    // Vencimento + Total: mesma linha "11/05/2026 R$ 25.849,43"
+    // Consumo: 3o valor m3 na linha de leituras
+
+    matricula = primeiroValido(texto,
+      [String.raw`C[ÓO]D\.?\s*LIG\.?[:\s]*([\d]+-\d)`]
+    );
+    identificador = primeiroValido(texto,
+      [String.raw`ID\.?\s*ELETR[ÔO]NICO[:\s]*([\w@]+)`]
+    );
+    numero_fatura = primeiroValido(texto,
+      [String.raw`(\d{12,}-\d)`]
+    );
+    data_emissao = primeiroValido(texto,
+      [String.raw`SETE LAGOAS[^\n]*\n(\d{2}/\d{2}/\d{4})`]
+    );
+    if (!data_emissao) {
+      const dts = [...texto.matchAll(/\b(\d{2}\/\d{2}\/\d{4})\b/g)].map(m => m[1]);
+      if (dts.length) data_emissao = dts[0];
+    }
+    vencimento = primeiroValido(texto,
+      [String.raw`(\d{2}/\d{2}/\d{4})\s+R\$\s*[\d\.]+,\d{2}`]
+    );
+    const totSaaeM = texto.match(/(\d{2}\/\d{2}\/\d{4})\s+R\$\s*([\d\.]+,\d{2})/);
+    total = totSaaeM ? fmtValor(totSaaeM[2]) : null;
+    const consM = texto.match(/(\d+)\s*m\u00b3\s+(\d+)\s*m\u00b3\s+(\d+)\s*m\u00b3/);
+    consumo = consM ? consM[3] : null;
+    if (!identificador) {
+      identificador = primeiroValido(texto,
+        [String.raw`No\.\s*do\s*hidr[ôo]metro\s*\n([A-Z0-9]+)`]
+      );
+    }
+  }
+
+    return { tipo, matricula, identificador, numero_fatura, data_emissao, vencimento, total_pagar: total, consumo_m3: consumo };
+}
+
+
+  // ─── Processar fila de arquivos ───
+  async function processarTodos(onProgress, onDone) {
+    if (!arquivos.length) return;
+    let ok = 0, erros = 0;
+    const total = arquivos.length;
+
+    for (let i = 0; i < arquivos.length; i++) {
+      const arq = arquivos[i];
+      arq.status = 'processando';
+      if (onProgress) onProgress({ i, total, arq, phase: 'start' });
+      try {
+        const texto = await extrairTextoPDF(arq.file);
+        textoCache[arq.name] = texto;
+        const tipo = detectarTipo(texto);
+        const campos = extrairCampos(texto, tipo);
+        campos.arquivo = arq.name;
+        // substitui se já havia esse arquivo (ex: reprocesso)
+        const existente = resultados.findIndex(r => r.arquivo === arq.name);
+        if (existente >= 0) resultados[existente] = campos;
+        else                resultados.push(campos);
+        arq.status = 'concluido'; arq.tipo = tipo; ok++;
+      } catch (e) {
+        arq.status = 'erro'; erros++;
+        console.error('[ÁGUA]', arq.name, e);
+      }
+      if (onProgress) onProgress({ i, total, arq, phase: 'done' });
+    }
+    if (onDone) onDone({ ok, erros, total });
+  }
+
+  // ─── API pública ───
+  async function addFiles(fileList, callbacks) {
+    callbacks = callbacks || {};
+    let n = 0;
+    for (const f of fileList) {
+      if (!f.name.toLowerCase().endsWith('.pdf')) continue;
+      if (arquivos.find(a => a.name === f.name)) continue;
+      arquivos.push({ file: f, name: f.name, status: 'aguardando', tipo: null });
+      n++;
+    }
+    if (callbacks.onAdd) callbacks.onAdd(n);
+    if (!n) return;
+    await processarTodos(callbacks.onProgress, callbacks.onDone);
+  }
+
+  function limpar() {
+    arquivos = []; resultados = [];
+    for (const k in textoCache) delete textoCache[k];
+  }
+
+  function removerArquivo(nome) {
+    arquivos = arquivos.filter(a => a.name !== nome);
+    resultados = resultados.filter(r => r.arquivo !== nome);
+    delete textoCache[nome];
+  }
+
+  function getTexto(nome) {
+    return textoCache[nome] || null;
+  }
+
+  // ─── Exportar Excel (datas no formato dd/mm/yyyy) ───
+  function normalizarDataExport(s) {
+    if (!s) return '';
+    const m = String(s).match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
+    if (!m) return String(s);
+    const pad = n => String(n).padStart(2, '0');
+    let d = parseInt(m[1], 10), mo = parseInt(m[2], 10), y = parseInt(m[3], 10);
+    if (y < 100) y += 2000;
+    if (d >= 1 && d <= 31 && mo >= 1 && mo <= 12) return pad(d) + '/' + pad(mo) + '/' + y;
+    if (mo >= 1 && mo <= 31 && d >= 1 && d <= 12) return pad(mo) + '/' + pad(d) + '/' + y; // fallback americano
+    return String(s);
+  }
+
+  function exportarExcel() {
+    if (!resultados.length) return false;
+    const dados = resultados.map(r => ({
+      'Arquivo':       r.arquivo || '',
+      'Tipo':          r.tipo || '',
+      'Matricula':     r.matricula || '',
+      'Identificador': r.identificador || '',
+      'Numero_Fatura': r.numero_fatura || '',
+      'Data_Emissao':  normalizarDataExport(r.data_emissao),
+      'Vencimento':    normalizarDataExport(r.vencimento),
+      'Total_Pagar':   r.total_pagar || '',
+      'Consumo_Medido': r.consumo_m3 || ''
+    }));
+    const ws = XLSX.utils.json_to_sheet(dados);
+    ws['!cols'] = [{wch:40},{wch:22},{wch:18},{wch:22},{wch:16},{wch:14},{wch:14},{wch:16},{wch:12}];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Faturas');
+
+    const debugDados = resultados.map(r => ({
+      'Arquivo': r.arquivo || '',
+      'Tipo_Detectado': r.tipo || '',
+      'Texto_Extraido': textoCache[r.arquivo] || '(texto não disponível)'
+    }));
+    const wsDbg = XLSX.utils.json_to_sheet(debugDados);
+    wsDbg['!cols'] = [{wch:40},{wch:22},{wch:200}];
+    XLSX.utils.book_append_sheet(wb, wsDbg, 'Debug');
+
+    const nome = 'faturas_agua_' + new Date().toISOString().slice(0,10).replace(/-/g,'') + '.xlsx';
+    XLSX.writeFile(wb, nome);
+    return nome;
+  }
+
+  // Expõe API
+  window.Agua = {
+    addFiles, limpar, removerArquivo, exportarExcel,
+    getDados, getArquivos, getTexto,
+  };
+})();
 
 
 </script>
