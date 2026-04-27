@@ -487,6 +487,7 @@ tbody td.td-hfp   { color: var(--warm);  font-weight: 600; font-variant-numeric:
     <button class="tab-btn"        onclick="switchTab('itens',this)">Consinco</button>
     <button class="tab-btn"        onclick="switchTab('dados',this)" style="color:var(--mint);"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:5px;"><path d="M9 2v4"/><path d="M15 2v4"/><path d="M7 6h10a2 2 0 0 1 2 2v3a5 5 0 0 1-5 5h-4a5 5 0 0 1-5-5V8a2 2 0 0 1 2-2z"/><path d="M12 16v6"/></svg>Dados</button>
     <button class="tab-btn"        onclick="switchTab('planilha',this)" style="color:var(--neon2);">📊 Planilha</button>
+    <button class="tab-btn"        onclick="switchTab('boletim',this)"  style="color:var(--warm);">📋 Boletim</button>
   </div>
 
   <!-- BASE COMPLETA -->
@@ -626,6 +627,54 @@ tbody td.td-hfp   { color: var(--warm);  font-weight: 600; font-variant-numeric:
           <thead id="thead-planilha"></thead>
           <tbody id="tbody-planilha">
             <tr><td class="empty-cell"><span class="empty-icon">📊</span>Vincule o CONTROLE.xlsx para visualizar os dados</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- BOLETIM (filtra mês + boletim + categoria e gera página de impressão) -->
+  <div class="tab-panel" id="tab-boletim">
+    <div class="table-card">
+      <div class="table-toolbar">
+        <select id="sel-boletim-cat"
+                style="background:var(--panel2);border:1px solid var(--rim);color:var(--ice);padding:6px 12px;border-radius:7px;font-family:var(--font-ui);font-size:12px;font-weight:600;outline:none;cursor:pointer;">
+          <option value="GÁS">⛽ GÁS</option>
+          <option value="ENERGIA">⚡ ENERGIA</option>
+          <option value="ÁGUA">💧 ÁGUA</option>
+        </select>
+        <select id="sel-boletim-mes"
+                title="Mês de referência"
+                style="background:var(--panel2);border:1px solid var(--rim);color:var(--ice);padding:6px 12px;border-radius:7px;font-family:var(--font-ui);font-size:12px;outline:none;cursor:pointer;">
+          <option value="">— Mês —</option>
+          <option value="1">1 — Janeiro</option>
+          <option value="2">2 — Fevereiro</option>
+          <option value="3">3 — Março</option>
+          <option value="4">4 — Abril</option>
+          <option value="5">5 — Maio</option>
+          <option value="6">6 — Junho</option>
+          <option value="7">7 — Julho</option>
+          <option value="8">8 — Agosto</option>
+          <option value="9">9 — Setembro</option>
+          <option value="10">10 — Outubro</option>
+          <option value="11">11 — Novembro</option>
+          <option value="12">12 — Dezembro</option>
+        </select>
+        <select id="sel-boletim-num"
+                title="Número do boletim (1-30)"
+                style="background:var(--panel2);border:1px solid var(--rim);color:var(--ice);padding:6px 12px;border-radius:7px;font-family:var(--font-ui);font-size:12px;outline:none;cursor:pointer;">
+          <option value="">— Boletim —</option>
+        </select>
+        <button class="btn-sm" onclick="filtrarBoletim()" style="border-color:var(--warm);color:var(--warm);">🔍 filtrar</button>
+        <span class="record-count" id="count-boletim">0 registros</span>
+        <button class="btn-sm" onclick="imprimirBoletim()" style="border-color:var(--mint);color:var(--mint);margin-left:auto;" title="Abre uma página de impressão com os registros filtrados">🖨 imprimir boletim</button>
+        <button class="btn-sm" onclick="exportarBoletimXlsx()" style="border-color:var(--neon2);color:var(--neon2);" title="Exporta os registros filtrados como .xlsx">⬇ exportar</button>
+      </div>
+      <div class="table-wrap" id="boletim-wrap" style="max-height:60vh;">
+        <table id="tabela-boletim">
+          <thead id="thead-boletim"></thead>
+          <tbody id="tbody-boletim">
+            <tr><td class="empty-cell"><span class="empty-icon">📋</span>Vincule o CONTROLE.xlsx, selecione categoria, mês e boletim, depois clique em filtrar</td></tr>
           </tbody>
         </table>
       </div>
@@ -896,7 +945,23 @@ function updateKPIs() {
     atualizarKpisAgua();
     return;
   }
-  // Restaura labels padrão (podem ter sido trocados pelo modo água)
+  // Aba Boletim: KPIs são calculados sob demanda por atualizarKpisBoletim()
+  // (chamada após o filtrar). Aqui só atualizamos se já houver um filtro ativo.
+  if (abaAtiva === 'boletim') {
+    if (typeof _boletimUltimo !== 'undefined' && _boletimUltimo.rows && _boletimUltimo.rows.length) {
+      atualizarKpisBoletim();
+    } else {
+      // Sem filtro — restaura labels padrão e zera valores
+      restaurarKpisPadrao();
+      document.getElementById('kpi-notas').textContent  = '0';
+      document.getElementById('kpi-itens').textContent  = '0';
+      document.getElementById('kpi-vtotal').textContent = '—';
+      document.getElementById('kpi-lojas').textContent  = '0';
+      document.getElementById('kpi-emit').textContent   = '0';
+    }
+    return;
+  }
+  // Restaura labels padrão (podem ter sido trocados pelo modo água ou boletim)
   restaurarKpisPadrao();
 
   // KPIs reagem conforme a aba ativa
@@ -5027,6 +5092,756 @@ function extrairCampos(texto, tipo) {
   };
 })();
 
+
+// ═════════════════════════════════════════════════════════════════
+// ABA BOLETIM — filtra mês + boletim + categoria e gera impressão
+// ═════════════════════════════════════════════════════════════════
+
+// Resultado do último filtro aplicado, usado pra impressão/exportação
+let _boletimUltimo = { headers: [], rows: [], cat: '', mes: '', num: '' };
+
+// Mapa de qual coluna é o boletim em cada aba (índice 0-based)
+//   GÁS:     col R = índice 17
+//   ENERGIA: col P = índice 15
+//   ÁGUA:    col Q = índice 16
+// Mês de referência:
+//   GÁS:     col K = 10
+//   ENERGIA: col O = 14
+//   ÁGUA:    col N = 13
+const BOLETIM_COLS = {
+  'GÁS':     { idxBoletim: 17, idxMes: 10 },
+  'ENERGIA': { idxBoletim: 15, idxMes: 14 },
+  'ÁGUA':    { idxBoletim: 16, idxMes: 13 },
+};
+
+// Popula o select de boletins (1 a 30) na inicialização
+document.addEventListener('DOMContentLoaded', () => {
+  const sel = document.getElementById('sel-boletim-num');
+  if (sel && sel.options.length <= 1) {
+    for (let i = 1; i <= 30; i++) {
+      const op = document.createElement('option');
+      op.value = String(i);
+      op.textContent = `Boletim ${i}`;
+      sel.appendChild(op);
+    }
+  }
+});
+
+// Filtra registros da aba selecionada por mês + boletim, exibe na tabela.
+// Reusa cacheDadosPlanilha quando possível, senão lê do arquivo vinculado.
+async function filtrarBoletim() {
+  const cat = document.getElementById('sel-boletim-cat')?.value || 'GÁS';
+  const mes = document.getElementById('sel-boletim-mes')?.value || '';
+  const num = document.getElementById('sel-boletim-num')?.value || '';
+
+  if (!gasFileHandle) {
+    setStatus('Vincule o CONTROLE.xlsx primeiro (botão Vincular na aba Dados).', 'err');
+    return;
+  }
+  if (!mes || !num) {
+    setStatus('Selecione mês e boletim antes de filtrar.', 'err');
+    return;
+  }
+
+  const tbody = document.getElementById('tbody-boletim');
+  const thead = document.getElementById('thead-boletim');
+  const cnt   = document.getElementById('count-boletim');
+  if (tbody) tbody.innerHTML = `<tr><td class="empty-cell">Carregando aba ${cat}…</td></tr>`;
+
+  try {
+    // Lê (ou recupera do cache) os dados da aba
+    let dados = cacheDadosPlanilha[cat];
+    if (!dados) {
+      const file = await gasFileHandle.getFile();
+      const buffer = await file.arrayBuffer();
+      dados = await lerDadosAbaPlanilha(buffer, cat);
+      cacheDadosPlanilha[cat] = dados;
+    }
+
+    const { headers, rows } = dados;
+    const map = BOLETIM_COLS[cat] || {};
+    let idxBoletim = map.idxBoletim;
+    let idxMes     = map.idxMes;
+
+    // Fallback: se a planilha tiver outra ordem de colunas, tenta achar pelo nome
+    const acharPorNome = (regex) => {
+      const norm = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+      for (let i = 0; i < headers.length; i++) {
+        if (regex.test(norm(headers[i]))) return i;
+      }
+      return -1;
+    };
+    if (idxBoletim == null || idxBoletim >= headers.length || !headers[idxBoletim]) {
+      const i = acharPorNome(/BOLETIM/);
+      if (i >= 0) idxBoletim = i;
+    }
+    if (idxMes == null || idxMes >= headers.length || !headers[idxMes]) {
+      const i = acharPorNome(/^MES(\s|\.|$|\sREF)|MES\s*REF/);
+      if (i >= 0) idxMes = i;
+    }
+    if (idxBoletim == null || idxBoletim < 0) {
+      setStatus(`Coluna BOLETIM não encontrada na aba ${cat}.`, 'err');
+      return;
+    }
+
+    const alvoMes = String(parseInt(mes, 10));
+    const alvoNum = String(parseInt(num, 10));
+    const filtradas = rows.filter(r => {
+      const vMes = r[idxMes];
+      const vNum = r[idxBoletim];
+      if (vMes == null || vMes === '' || vNum == null || vNum === '') return false;
+      const nMes = parseInt(String(vMes).trim(), 10);
+      const nNum = parseInt(String(vNum).trim(), 10);
+      return !isNaN(nMes) && !isNaN(nNum) && String(nMes) === alvoMes && String(nNum) === alvoNum;
+    });
+
+    _boletimUltimo = { headers, rows: filtradas, cat, mes, num };
+
+    if (cnt) cnt.textContent = `${filtradas.length} registro${filtradas.length === 1 ? '' : 's'}`;
+
+    if (!filtradas.length) {
+      thead.innerHTML = '';
+      tbody.innerHTML = `<tr><td class="empty-cell">Nenhum registro para mês ${mes} / boletim ${num} em ${cat}</td></tr>`;
+      return;
+    }
+
+    // Detecta colunas de data e numérica (mesma lógica da renderPlanilha)
+    const pareceData = v => {
+      if (v === null || v === undefined || v === '') return false;
+      if (v instanceof Date) return true;
+      const s = String(v).trim();
+      return /^\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}$/.test(s) || /^\d{4}-\d{1,2}-\d{1,2}/.test(s);
+    };
+    const colsData = headers.map((h, i) => {
+      if (typeof ehColunaData === 'function' && ehColunaData(h)) return true;
+      let total = 0, datas = 0;
+      for (const r of filtradas.slice(0, 30)) {
+        const v = r[i];
+        if (v == null || v === '') continue;
+        total++;
+        if (pareceData(v)) datas++;
+      }
+      return total > 0 && (datas / total) >= 0.6;
+    });
+
+    thead.innerHTML = `<tr>${headers.map(h => `<th>${escapeHtml(h)}</th>`).join('')}</tr>`;
+    tbody.innerHTML = filtradas.map(row => {
+      const tds = headers.map((_, i) => {
+        let v = row[i];
+        if (v == null) v = '';
+        if (colsData[i] && v !== '') {
+          v = formatarDataPlanilha(v);
+        } else {
+          v = String(v);
+        }
+        return `<td>${escapeHtml(v)}</td>`;
+      }).join('');
+      return `<tr>${tds}</tr>`;
+    }).join('');
+
+    setStatus(`✔ ${filtradas.length} registro(s) carregado(s) — ${cat}, mês ${mes}, boletim ${num}.`, 'ok');
+
+    // Atualiza os 5 cards (KPIs) com os dados do boletim filtrado
+    atualizarKpisBoletim();
+  } catch (err) {
+    console.error('[boletim] erro:', err);
+    if (tbody) tbody.innerHTML = `<tr><td class="empty-cell">Erro: ${escapeHtml(String(err.message || err))}</td></tr>`;
+    setStatus('Erro ao filtrar boletim: ' + (err.message || err), 'err');
+  }
+}
+
+// Recalcula os 5 cards de KPI usando os registros filtrados pelo boletim.
+// Re-rotula os labels para o contexto: Documentos / Boletim / Total Bruto / Lojas / Próx. Venc.
+function atualizarKpisBoletim() {
+  const { headers, rows, cat, mes, num } = _boletimUltimo;
+  if (!rows || !rows.length) return;
+
+  // Re-rotula os labels (igual padrão do modo água)
+  const setLbl = (id, txt) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const lbl = el.parentElement?.querySelector('.kpi-label');
+    if (lbl) lbl.textContent = txt;
+  };
+  setLbl('kpi-notas',  'Documentos');
+  setLbl('kpi-itens',  'Boletim');
+  setLbl('kpi-vtotal', 'Total Bruto');
+  setLbl('kpi-lojas',  'Lojas únicas');
+  setLbl('kpi-emit',   'Próx. Venc.');
+
+  // Acha os índices que precisamos a partir dos cabeçalhos da aba.
+  const L = (letra) => letra.charCodeAt(0) - 65;
+  // Fallback por letra (mesmo do imprimirBoletim) — caso o nome do header não case
+  const fbValor = { 'ENERGIA': L('N'), 'GÁS': L('J'), 'ÁGUA': L('M') };
+
+  let idxLoja  = acharIdxBoletim(headers, [/^LOJA$/, /\bLOJA\b/]);
+  let idxValor = acharIdxBoletim(headers, [
+    /VALOR\s*BRUTO/, /^VALOR$/, /TOTAL\s*CONTA/, /V\.?\s*TOTAL/, /^TOTAL$/,
+    /VLR\s*BRUTO/, /^VLR$/, /VALOR\s*NOTA/, /VALOR\s*R\$/, /TOTAL[_\s]*PAGAR/
+  ]);
+  let idxVcto  = acharIdxBoletim(headers, [/VENCIMENTO/, /^VENC/, /DT\s*VENC/]);
+
+  // Fallback por letra de coluna se não achou por nome
+  if (idxLoja  < 0) idxLoja  = 0; // sempre col A
+  if (idxValor < 0 && fbValor[cat] != null && fbValor[cat] < headers.length) idxValor = fbValor[cat];
+
+  // Calcula totais
+  let total = 0;
+  let countValores = 0;
+  const lojas = new Set();
+  const vencs = [];
+  for (const r of rows) {
+    if (idxValor >= 0) {
+      const n = paraNumeroBoletim(r[idxValor]);
+      if (n > 0) { total += n; countValores++; }
+    }
+    if (idxLoja  >= 0 && r[idxLoja] != null && r[idxLoja] !== '') lojas.add(String(r[idxLoja]));
+    if (idxVcto  >= 0 && r[idxVcto] != null && r[idxVcto] !== '') {
+      const dStr = fmtDataBoletim(r[idxVcto]);
+      const m = dStr.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+      if (m) {
+        const dt = new Date(parseInt(m[3],10), parseInt(m[2],10) - 1, parseInt(m[1],10));
+        if (!isNaN(dt)) vencs.push(dt);
+      }
+    }
+  }
+
+  // Logs de diagnóstico (visíveis no DevTools)
+  console.log('[boletim KPI]', {
+    cat, mes, num,
+    rows: rows.length,
+    headers,
+    idxLoja, idxValor, idxVcto,
+    nomeColunaValor: idxValor >= 0 ? headers[idxValor] : '(NÃO ENCONTRADA)',
+    valoresLidos: countValores,
+    total
+  });
+
+  // Próximo vencimento (>= hoje); se não houver futuro, pega o mais recente passado
+  const hoje = new Date(); hoje.setHours(0,0,0,0);
+  let proxStr = '—';
+  const futuros = vencs.filter(d => d >= hoje).sort((a,b) => a - b);
+  if (futuros.length) {
+    const d = futuros[0];
+    const pad = n => String(n).padStart(2, '0');
+    proxStr = `${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()}`;
+  } else if (vencs.length) {
+    const d = vencs.sort((a,b) => b - a)[0];
+    const pad = n => String(n).padStart(2, '0');
+    proxStr = `${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()}`;
+  }
+
+  document.getElementById('kpi-notas').textContent  = rows.length.toLocaleString('pt-BR');
+  document.getElementById('kpi-itens').textContent  = String(num);
+  document.getElementById('kpi-vtotal').textContent = total > 0
+    ? total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+    : (idxValor < 0 ? '—' : 'R$ 0,00');
+  document.getElementById('kpi-lojas').textContent  = String(lojas.size);
+  document.getElementById('kpi-emit').textContent   = proxStr;
+}
+
+// Recarrega o filtro quando a categoria muda (limpa visual, força clique no filtrar)
+(function () {
+  const setupListeners = () => {
+    const selCat = document.getElementById('sel-boletim-cat');
+    if (selCat && !selCat._boletimWired) {
+      selCat._boletimWired = true;
+      selCat.addEventListener('change', () => {
+        // Limpa tabela quando troca de categoria — usuário precisa clicar em filtrar
+        const tbody = document.getElementById('tbody-boletim');
+        const thead = document.getElementById('thead-boletim');
+        const cnt   = document.getElementById('count-boletim');
+        if (thead) thead.innerHTML = '';
+        if (tbody) tbody.innerHTML = `<tr><td class="empty-cell"><span class="empty-icon">📋</span>Selecione mês e boletim, depois clique em filtrar</td></tr>`;
+        if (cnt)   cnt.textContent = '0 registros';
+        _boletimUltimo = { headers: [], rows: [], cat: '', mes: '', num: '' };
+        // Reseta os cards (volta para labels padrão e zera os valores)
+        if (typeof updateKPIs === 'function') updateKPIs();
+      });
+    }
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', setupListeners);
+  else setupListeners();
+})();
+
+// Formata número como BRL (R$ 1.234,56). Usado na coluna VALOR BRUTO.
+// Detecta se a string vem em formato BR (1.234,56) ou US (1,234.56) olhando
+// a posição do último separador. Necessário porque o XLSX.js, dependendo do
+// locale do arquivo, pode devolver valores formatados como string em qualquer
+// um dos dois padrões.
+function fmtBRLBoletim(v) {
+  const n = parseNumeroSmart(v);
+  if (n === null) return v == null ? '' : String(v);
+  return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
+// Converte valor (number ou string em qualquer formato) para Number.
+// Regra de desempate: o ÚLTIMO separador é sempre o decimal; tudo antes é milhar.
+// Se houver só um tipo de separador e for seguido por exatamente 3 dígitos no final,
+// trata como separador de milhar (ex: "43.840" → 43840, "43,840" → 43840).
+function parseNumeroSmart(v) {
+  if (v == null || v === '') return null;
+  if (typeof v === 'number' && isFinite(v)) return v;
+  let s = String(v).trim().replace(/R\$\s*/i, '').replace(/\s/g, '');
+  if (!s) return null;
+  // remove sinal de % se houver e mantém o sinal de menos
+  const neg = /^-/.test(s);
+  if (neg) s = s.slice(1);
+
+  const temVirg = s.includes(',');
+  const temPto  = s.includes('.');
+
+  if (temVirg && temPto) {
+    // Ambos: o último é o decimal, o outro é milhar
+    if (s.lastIndexOf(',') > s.lastIndexOf('.')) {
+      // BR: 43.840,99
+      s = s.replace(/\./g, '').replace(',', '.');
+    } else {
+      // US: 43,840.99
+      s = s.replace(/,/g, '');
+    }
+  } else if (temVirg) {
+    const partes = s.split(',');
+    if (partes.length > 2) {
+      // 1,234,567 → milhar US
+      s = s.replace(/,/g, '');
+    } else if (partes[1] && partes[1].length === 3 && /^\d+$/.test(partes[1])) {
+      // 43,840 (3 dígitos depois) → milhar US
+      s = s.replace(',', '');
+    } else {
+      // 43,99 ou 43840,99 → decimal BR
+      s = s.replace(',', '.');
+    }
+  } else if (temPto) {
+    const partes = s.split('.');
+    if (partes.length > 2) {
+      // 1.234.567 → milhar BR
+      s = s.replace(/\./g, '');
+    } else if (partes[1] && partes[1].length === 3 && /^\d+$/.test(partes[1])) {
+      // 43.840 (3 dígitos depois) → milhar BR
+      s = s.replace('.', '');
+    }
+    // senão é decimal US (43840.99) — deixa como está
+  }
+  const n = parseFloat(s);
+  if (!isFinite(n)) return null;
+  return neg ? -n : n;
+}
+
+// Formata data garantindo dd/mm/yyyy (4 dígitos no ano, padrão para impressão)
+function fmtDataBoletim(v) {
+  if (v == null || v === '') return '';
+  // Reusa formatarDataPlanilha que já existe (devolve dd/mm/aa)
+  // mas pra impressão queremos dd/mm/yyyy
+  if (v instanceof Date && !isNaN(v)) {
+    const pad = n => String(n).padStart(2, '0');
+    return `${pad(v.getDate())}/${pad(v.getMonth()+1)}/${v.getFullYear()}`;
+  }
+  if (typeof v === 'number' && isFinite(v) && v > 0 && v < 80000) {
+    const base = new Date(Date.UTC(1899, 11, 30));
+    const d = new Date(base.getTime() + Math.round(v) * 86400000);
+    const pad = n => String(n).padStart(2, '0');
+    return `${pad(d.getUTCDate())}/${pad(d.getUTCMonth()+1)}/${d.getUTCFullYear()}`;
+  }
+  const s = String(v).trim();
+  let m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
+  if (m) {
+    let a = parseInt(m[1], 10), b = parseInt(m[2], 10), y = parseInt(m[3], 10);
+    if (y < 100) y += 2000;
+    const pad = n => String(n).padStart(2, '0');
+    if (a >= 1 && a <= 31 && b >= 1 && b <= 12) return `${pad(a)}/${pad(b)}/${y}`;
+    if (b >= 1 && b <= 31 && a >= 1 && a <= 12) return `${pad(b)}/${pad(a)}/${y}`;
+  }
+  m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (m) {
+    const pad = n => String(n).padStart(2, '0');
+    return `${pad(parseInt(m[3],10))}/${pad(parseInt(m[2],10))}/${m[1]}`;
+  }
+  return s;
+}
+
+// Converte valor da planilha para número (pra somatório)
+function paraNumeroBoletim(v) {
+  const n = parseNumeroSmart(v);
+  return n === null ? 0 : n;
+}
+
+// Acha o índice de uma coluna na planilha tentando uma lista de regexes (em ordem)
+function acharIdxBoletim(headers, regexes) {
+  const norm = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
+  for (const re of regexes) {
+    for (let i = 0; i < headers.length; i++) {
+      if (re.test(norm(headers[i]))) return i;
+    }
+  }
+  return -1;
+}
+
+// Abre nova janela com layout pronto pra impressão (Ctrl+P).
+// Layout: cabeçalho com categoria/mês/boletim/data, tabela com colunas
+// "Nº | LOJA | EMPRESA | COD | NOTAS FISCAIS | ESCOPO | OS | VALOR BRUTO |
+//  EMISSÃO | VENCIMENTO | CONTA/TAG | NAT. DESP. | BOLETIM"
+// + linha de TOTAL no rodapé.
+function imprimirBoletim() {
+  const { headers, rows, cat, mes, num } = _boletimUltimo;
+  if (!rows || !rows.length) {
+    setStatus('Filtre o boletim antes de imprimir (sem registros agora).', 'err');
+    return;
+  }
+
+  // Mapeamento: dado os headers da aba, tenta achar cada uma das colunas que
+  // queremos no boletim. Usa nome (preferido) e cai pra letras de coluna como
+  // fallback (baseado no mapeamento já existente nas integrações).
+  // Letras de coluna (Excel) → índice 0-based: A=0, B=1, ..., Z=25
+  const L = (letra) => letra.charCodeAt(0) - 65;
+
+  // Heurísticas de nome para cada coluna do boletim. A primeira regex que
+  // bater num header da aba é usada. Se nenhuma bater, cai no fallback por
+  // letra (segundo argumento).
+  // Fallbacks por categoria — baseados na estrutura existente da planilha:
+  //   ENERGIA: A=Loja, B=Cód, C=Empresa, H=NF, J=Emissão, K=Venc, N=Total Conta, O=Mês, P=Boletim
+  //   GÁS:     A=Loja, B=Cód?, E=Qtd, G=NF, H=Emissão, I=Venc, J=Total, K=Mês, N=CNPJ, R=Boletim
+  //   ÁGUA:    A=Loja, H=Tipo("ÁGUA"), I="-", J=Consumo, K=Emissão, L=Venc, M=Valor, N=Mês, Q=Boletim
+  // O exemplo do usuário (CEMIG) é da aba ENERGIA:
+  //   "4 | 224 | CEMIG... | 76197 | 377842149 | ENERGIA ELÉTRICA | - | R$ 20.648,66 | 09/04 | 11/05 | ENERGIA TUSD | 2111 | 10"
+  // Então as colunas Nº/COD/ESCOPO/OS/CONTA TAG/NAT.DESP. existem como cabeçalhos
+  // próprios na planilha. Vamos achá-las por nome e respeitar o que está lá.
+  const fb = {
+    'ENERGIA': { loja:L('A'), cod:L('B'), empresa:L('C'), nf:L('H'), emissao:L('J'), vcto:L('K'), valor:L('N'), boletim:L('P') },
+    'GÁS':     { loja:L('A'), cod:L('B'), empresa:L('C'), nf:L('G'), emissao:L('H'), vcto:L('I'), valor:L('J'), boletim:L('R') },
+    'ÁGUA':    { loja:L('A'), cod:L('B'), empresa:L('C'), nf:L('G'), emissao:L('K'), vcto:L('L'), valor:L('M'), boletim:L('Q') },
+  };
+  const fbCat = fb[cat] || fb['ENERGIA'];
+
+  // Resolve cada coluna: tenta pelo nome, senão usa fallback por letra
+  const idx = {
+    n:        acharIdxBoletim(headers, [/^N[º°]?$/, /^NUM(ERO)?$/]),  // existe? se não, gera 1..N
+    loja:     acharIdxBoletim(headers, [/^LOJA$/, /\bLOJA\b/]),
+    empresa:  acharIdxBoletim(headers, [/^FORNECEDOR$/, /FORNECEDOR/, /^EMPRESA$/, /^EMITENTE$/, /NOME\s*EMITENTE/]),
+    cod:      acharIdxBoletim(headers, [/^COD(IGO)?$/, /^COD\.?$/]),
+    nf:       acharIdxBoletim(headers, [/NOTAS?\s*FISCAIS?/, /^NF$/, /^NOTA$/, /^NUMERO\s*NF$/]),
+    os:       acharIdxBoletim(headers, [/^OS$/, /ORDEM\s*SERVICO/]),
+    valor:    acharIdxBoletim(headers, [/VALOR\s*BRUTO/, /^VALOR$/, /TOTAL\s*CONTA/, /V\.?\s*TOTAL/, /^TOTAL$/]),
+    emissao:  acharIdxBoletim(headers, [/EMISSAO/, /^EMIS/, /DT\s*EMIS/]),
+    vcto:     acharIdxBoletim(headers, [/VENCIMENTO/, /^VENC/, /DT\s*VENC/]),
+    contaTag: acharIdxBoletim(headers, [/CONTA\s*\/?\s*TAG/, /^TAG$/, /^CONTA$/]),
+    // NAT. DESP. puxa da coluna NATUREZA da planilha
+    natDesp:  acharIdxBoletim(headers, [/^NATUREZA$/, /NATUREZA/]),
+    boletim:  acharIdxBoletim(headers, [/^BOLETIM$/, /BOLETIM/]),
+  };
+  // ESCOPO é FIXO por categoria (não vem da planilha):
+  //   ENERGIA → "ENERGIA ELÉTRICA"
+  //   GÁS     → "GÁS"
+  //   ÁGUA    → "ÁGUA"
+  const ESCOPO_FIXO = { 'ENERGIA': 'ENERGIA ELÉTRICA', 'GÁS': 'GÁS', 'ÁGUA': 'ÁGUA' };
+  const escopoTexto = ESCOPO_FIXO[cat] || cat;
+
+  // Aplica fallbacks por letra quando o nome não foi encontrado
+  if (idx.loja    < 0 && fbCat.loja    < headers.length) idx.loja    = fbCat.loja;
+  if (idx.empresa < 0 && fbCat.empresa < headers.length) idx.empresa = fbCat.empresa;
+  if (idx.cod     < 0 && fbCat.cod     < headers.length) idx.cod     = fbCat.cod;
+  if (idx.nf      < 0 && fbCat.nf      < headers.length) idx.nf      = fbCat.nf;
+  if (idx.valor   < 0 && fbCat.valor   < headers.length) idx.valor   = fbCat.valor;
+  if (idx.emissao < 0 && fbCat.emissao < headers.length) idx.emissao = fbCat.emissao;
+  if (idx.vcto    < 0 && fbCat.vcto    < headers.length) idx.vcto    = fbCat.vcto;
+  if (idx.boletim < 0 && fbCat.boletim < headers.length) idx.boletim = fbCat.boletim;
+
+  // Monta as linhas no formato do boletim
+  let totalGeral = 0;
+  const linhasHtml = rows.map((r, i) => {
+    const get = (k) => (idx[k] >= 0 ? r[idx[k]] : '');
+    const numLinha = idx.n >= 0 && get('n') ? get('n') : (i + 1);
+    const valorNum = paraNumeroBoletim(get('valor'));
+    totalGeral += valorNum;
+
+    const cells = [
+      String(numLinha ?? ''),
+      String(get('loja') ?? ''),
+      String(get('empresa') ?? ''),
+      String(get('cod') ?? ''),
+      String(get('nf') ?? ''),
+      escopoTexto,                       // ESCOPO fixo por categoria
+      String(get('os') ?? ''),
+      fmtBRLBoletim(get('valor')),
+      fmtDataBoletim(get('emissao')),
+      fmtDataBoletim(get('vcto')),
+      String(get('contaTag') ?? ''),
+      String(get('natDesp') ?? ''),       // NAT. DESP. ← coluna NATUREZA da planilha
+      String(get('boletim') ?? num),
+    ];
+
+    return '<tr>' +
+      cells.map((v, j) => {
+        // coluna 7 = VALOR BRUTO → tabular-nums + bold (centralizado via CSS de tbody td)
+        // colunas curtas que não devem quebrar: Nº(0), LOJA(1), COD(3), NF(4), OS(6), EMISSÃO(8), VENCIMENTO(9), BOLETIM(12)
+        let cls = '';
+        if      (j === 7) cls = ' class="val"';
+        else if (j === 0 || j === 1 || j === 3 || j === 4 || j === 6 || j === 8 || j === 9 || j === 12) cls = ' class="nowrap"';
+        return `<td${cls}>${escapeHtml(String(v))}</td>`;
+      }).join('') +
+    '</tr>';
+  }).join('');
+
+  const NOMES_MES = ['','Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  const nomeMes = NOMES_MES[parseInt(mes, 10)] || mes;
+  const dataAgora = new Date().toLocaleDateString('pt-BR') + ' ' + new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  const usr = (typeof usuarioLogado !== 'undefined' && usuarioLogado) ? usuarioLogado : '';
+  const totalFmt = totalGeral.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+  const ICONE = cat === 'GÁS' ? '⛽' : cat === 'ENERGIA' ? '⚡' : '💧';
+
+  const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Boletim ${num} — ${cat} — ${nomeMes}</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: #fff; color: #111; font-family: 'Segoe UI', Arial, sans-serif; font-size: 10px; }
+  body { padding: 8mm 10mm; }
+
+  .head { border-bottom: 2px solid #111; padding-bottom: 6px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: flex-end; }
+  .head-l h1 { font-size: 15px; font-weight: 700; letter-spacing: .3px; margin-bottom: 2px; }
+  .head-l .sub { font-size: 9px; color: #555; }
+  .head-r { text-align: right; font-size: 9px; color: #555; line-height: 1.4; }
+  .head-r strong { color: #111; }
+
+  .meta { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 8px; }
+  .meta .box { border: 1px solid #ccc; border-radius: 3px; padding: 4px 8px; }
+  .meta .lbl { font-size: 8px; color: #777; text-transform: uppercase; letter-spacing: .3px; }
+  .meta .val { font-size: 11px; font-weight: 600; color: #111; margin-top: 1px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 9px; table-layout: fixed; }
+  thead th {
+    background: #1e2845; color: #fff; padding: 5px 3px; text-align: center;
+    font-weight: 600; font-size: 8.5px; letter-spacing: .2px; text-transform: uppercase;
+    border: 1px solid #1e2845; word-wrap: break-word;
+  }
+  tbody td {
+    padding: 4px 3px; border: 1px solid #ddd; vertical-align: middle;
+    text-align: center; word-wrap: break-word; overflow-wrap: break-word;
+    line-height: 1.2;
+  }
+  tbody tr:nth-child(even) td { background: #f7f9fc; }
+  td.val    { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+  td.nowrap { white-space: nowrap; }
+
+  tfoot td {
+    background: #1e2845; color: #fff; padding: 6px 4px; font-weight: 700;
+    border: 1px solid #1e2845; font-size: 10px;
+    text-align: center;
+  }
+  tfoot td.lbl-total { text-align: right; padding-right: 10px; }
+  tfoot td.val-total { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+  .footer { margin-top: 10px; display: flex; justify-content: space-between; font-size: 8.5px; color: #777; border-top: 1px solid #ddd; padding-top: 5px; }
+
+  /* Área de assinaturas — com espaço suficiente para assinar E carimbar */
+  .signs {
+    margin-top: 22px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 60px;
+    padding: 0 20px;
+  }
+  .sign-block {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+  }
+  /* Espaço em branco onde a pessoa vai assinar e carimbar */
+  .sign-area {
+    min-height: 32mm;          /* ~3,2cm — cabe assinatura + carimbo redondo padrão */
+    border: 1px dashed #bbb;
+    border-radius: 4px;
+    background: #fafbfd;
+    position: relative;
+  }
+  .sign-area::before {
+    content: 'assinatura e carimbo';
+    position: absolute;
+    top: 4px; left: 8px;
+    font-size: 7.5px;
+    color: #c0c4cc;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    font-style: italic;
+  }
+  .sign-line {
+    border-top: 1px solid #555;
+    margin-top: 6px;
+    padding-top: 4px;
+    text-align: center;
+    font-size: 9px;
+    color: #444;
+    min-height: 14px;
+  }
+  .sign-lbl {
+    display: block;
+    margin-top: 6px;
+    padding-top: 4px;
+    border-top: 1px solid #555;
+    font-size: 9px;
+    color: #444;
+    text-transform: uppercase;
+    letter-spacing: .3px;
+    text-align: center;
+    font-weight: 500;
+  }
+
+  .toolbar { position: fixed; top: 12px; right: 12px; display: flex; gap: 6px; z-index: 999; }
+  .toolbar button {
+    background: #1e2845; color: #fff; border: none; padding: 7px 14px;
+    border-radius: 4px; font-size: 11px; cursor: pointer; font-family: inherit; font-weight: 600;
+  }
+  .toolbar button:hover { background: #2a3760; }
+
+  @media print {
+    html, body { font-size: 9px; }
+    body { padding: 6mm 8mm; }
+    .toolbar { display: none; }
+    thead { display: table-header-group; }
+    tfoot { display: table-footer-group; }
+    tr { page-break-inside: avoid; }
+    table { page-break-inside: auto; }
+    .signs { page-break-inside: avoid; }
+    @page { size: A4 landscape; margin: 6mm; }
+  }
+</style>
+</head>
+<body>
+<div class="toolbar">
+  <button onclick="window.print()">🖨 Imprimir</button>
+  <button onclick="window.close()">✕ Fechar</button>
+</div>
+
+<div class="head">
+  <div class="head-l">
+    <h1>${ICONE} BOLETIM DE ENTREGA — ${escapeHtml(cat)}</h1>
+    <div class="sub">Relação de notas fiscais para pagamento</div>
+  </div>
+  <div class="head-r">
+    <div><strong>Gerado em:</strong> ${escapeHtml(dataAgora)}</div>
+    ${usr ? `<div><strong>Usuário:</strong> ${escapeHtml(usr)}</div>` : ''}
+    <div><strong>Documentos:</strong> ${rows.length}</div>
+  </div>
+</div>
+
+<div class="meta">
+  <div class="box"><div class="lbl">Categoria</div><div class="val">${escapeHtml(cat)}</div></div>
+  <div class="box"><div class="lbl">Mês de referência</div><div class="val">${escapeHtml(nomeMes)}</div></div>
+  <div class="box"><div class="lbl">Boletim</div><div class="val">Nº ${escapeHtml(String(num))}</div></div>
+  <div class="box"><div class="lbl">Quantidade de notas</div><div class="val">${rows.length}</div></div>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th style="width:26px;">Nº</th>
+      <th style="width:42px;">LOJA</th>
+      <th style="width:14%;">EMPRESA</th>
+      <th style="width:50px;">COD</th>
+      <th style="width:78px;">NOTAS FISCAIS</th>
+      <th style="width:13%;">ESCOPO</th>
+      <th style="width:36px;">OS</th>
+      <th style="width:88px;">VALOR BRUTO</th>
+      <th style="width:60px;">EMISSÃO</th>
+      <th style="width:60px;">VENCIMENTO</th>
+      <th style="width:11%;">CONTA/TAG</th>
+      <th style="width:11%;">NAT. DESP.</th>
+      <th style="width:46px;">BOLETIM</th>
+    </tr>
+  </thead>
+  <tbody>${linhasHtml}</tbody>
+  <tfoot>
+    <tr>
+      <td class="lbl-total" colspan="7">TOTAL GERAL — ${rows.length} documento(s)</td>
+      <td class="val-total">${escapeHtml(totalFmt)}</td>
+      <td colspan="5"></td>
+    </tr>
+  </tfoot>
+</table>
+
+<div class="signs">
+  <div class="sign-block">
+    <div class="sign-area"></div>
+    <span class="sign-lbl">Responsável pela entrega</span>
+  </div>
+  <div class="sign-block">
+    <div class="sign-area"></div>
+    <span class="sign-lbl">Recebido por</span>
+  </div>
+</div>
+
+<div class="footer">
+  <div>Boletim nº ${escapeHtml(String(num))} — ${escapeHtml(cat)} — ${escapeHtml(nomeMes)}</div>
+  <div>Página 1</div>
+</div>
+
+<script>
+  // Auto-fit: se o conteúdo passa da altura útil de uma A4 paisagem (~190mm),
+  // reduz a fonte global proporcionalmente até caber. Vai até no mínimo 6.5px.
+  function autoFit() {
+    const wrapper = document.body;
+    // A4 paisagem: 297mm x 210mm. Margem de 6mm dos dois lados → altura útil ≈ 198mm.
+    // 1mm ≈ 3.78px → ~748px de altura útil.
+    const maxH = 198 * 3.78;
+    let size = parseFloat(getComputedStyle(document.documentElement).fontSize) || 10;
+    let tries = 0;
+    while (wrapper.scrollHeight > maxH && size > 6.5 && tries < 30) {
+      size -= 0.4;
+      document.documentElement.style.fontSize = size + 'px';
+      // Reduz também tabela proporcionalmente
+      document.querySelectorAll('table').forEach(t => t.style.fontSize = (size * 0.95) + 'px');
+      tries++;
+    }
+  }
+
+  // Foca na janela, ajusta o tamanho e abre o diálogo de impressão automaticamente
+  window.addEventListener('load', () => {
+    setTimeout(() => {
+      try { autoFit(); } catch (_) {}
+      try { window.focus(); window.print(); } catch (_) {}
+    }, 200);
+  });
+<\/script>
+</body>
+</html>`;
+
+  const w = window.open('', '_blank', 'width=1200,height=820');
+  if (!w) {
+    setStatus('Permita pop-ups neste site para abrir o boletim de impressão.', 'err');
+    return;
+  }
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+}
+
+// Exporta os registros filtrados como xlsx (mesmas colunas que aparecem na tela)
+function exportarBoletimXlsx() {
+  const { headers, rows, cat, mes, num } = _boletimUltimo;
+  if (!rows || !rows.length) {
+    setStatus('Filtre o boletim antes de exportar (sem registros agora).', 'err');
+    return;
+  }
+  if (typeof XLSX === 'undefined') {
+    setStatus('Biblioteca XLSX não disponível.', 'err');
+    return;
+  }
+  const aoa = [headers, ...rows];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  // larguras automáticas básicas
+  ws['!cols'] = headers.map(h => ({ wch: Math.min(Math.max(String(h || '').length + 2, 12), 30) }));
+  const wb = XLSX.utils.book_new();
+  const aba = `Boletim ${num} ${cat}`.substring(0, 31); // limite do Excel
+  XLSX.utils.book_append_sheet(wb, ws, aba);
+
+  const stamp = new Date().toISOString().slice(0,10).replace(/-/g,'');
+  const nome = `boletim_${cat.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase()}_mes${mes}_n${num}_${stamp}.xlsx`;
+  XLSX.writeFile(wb, nome);
+  setStatus(`✔ Exportado: ${nome}`, 'ok');
+}
 
 </script>
 </body>
