@@ -1614,6 +1614,8 @@ async function vincularPlanilhaGas() {
     gasFileName   = handle.name;
     atualizarUiVinculoGas();
     setStatus(`🔗 ${gasFileName} vinculado. Agora basta clicar em "Integrar direto".`, 'ok');
+    // Carrega a lista de lojas das abas GÁS/ENERGIA/ÁGUA pra alimentar o autocompletar
+    carregarListaLojas(true).catch(() => {});
   } catch (err) {
     if (err && err.name === 'AbortError') return; // usuário cancelou
     console.error(err);
@@ -1628,6 +1630,9 @@ function desvincularPlanilhaGas() {
   setStatus('Arquivo desvinculado.');
   // limpa cache da aba Planilha
   cacheDadosPlanilha = {};
+  // limpa lista de lojas
+  _lojasCacheArr = null;
+  atualizarDatalistLojas();
   renderPlanilhaVazia('Arquivo desvinculado. Vincule novamente para visualizar.');
 }
 
@@ -2042,6 +2047,11 @@ async function executarIntegracaoGas(mesRef, dia) {
     await writable.write(resultado.blob);
     await writable.close();
 
+    // Invalida cache da planilha — agora os dados em memória estão desatualizados
+    cacheDadosPlanilha = {};
+    // Recarrega lista de lojas (pode ter loja nova)
+    carregarListaLojas(true).catch(() => {});
+
     const sufixoDup = duplicatasIds.length
       ? ` · ${duplicatasIds.length} duplicata(s) auto-exclu\u00edda(s)`
       : '';
@@ -2066,6 +2076,14 @@ async function integrarPlanilhaAguaDireto() {
   if (!faturas.length) { setStatus('Nenhuma fatura de água carregada.', 'err'); return; }
   if (typeof JSZip === 'undefined') {
     setStatus('Biblioteca JSZip não carregou. Recarregue a página.', 'err');
+    return;
+  }
+  // Valida que todas as faturas têm Loja preenchida
+  const semLoja = faturas.filter(f => !f.loja || !String(f.loja).trim());
+  if (semLoja.length) {
+    const exemplos = semLoja.slice(0, 3).map(f => f.arquivo).join(', ');
+    const sufix = semLoja.length > 3 ? ` e mais ${semLoja.length - 3}` : '';
+    setStatus(`Preencha a Loja de ${semLoja.length} fatura(s) antes de integrar: ${exemplos}${sufix}.`, 'err');
     return;
   }
   abrirModalIntegrarAgua(faturas.length);
@@ -2158,18 +2176,70 @@ async function executarIntegracaoAgua(mesRef, dia) {
     const buffer = await file.arrayBuffer();
 
     // ─── Verificação de duplicatas ───
-    // Chave: Nº Fatura | Fornecedor (tipo) | Matrícula
-    //   → se a mesma fatura do mesmo fornecedor pra mesma matrícula já está na aba, pula.
+    // Chave: Loja | Emissão | Vencimento | Valor | Mês Ref. (combinação única)
+    //   → se já existir na planilha uma linha com essa mesma combinação, pula.
     let faturasParaGravar = [...faturas];
     let duplicatas = 0;
     try {
-      const dadosAba = await lerDadosAbaPlanilha(buffer, 'AGUA');
-      const chavesExistentes = construirChavesDuplicataAgua(dadosAba);
+      // Lê a aba AGUA inteira como array de arrays, sem cortar colunas
+      const wb = XLSX.read(buffer, { type: 'array', cellDates: false, raw: true });
+      const abaReal = wb.SheetNames.find(s => s.toUpperCase().replace(/[^A-Z]/g, '') === 'AGUA') || 'AGUA';
+      const ws = wb.Sheets[abaReal];
+      let chavesExistentes = new Set();
+      let aoaRows = [];
+      if (ws) {
+        const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: true });
+        aoaRows = aoa.slice(1);
+        chavesExistentes = construirChavesDuplicataAgua({ rows: aoaRows });
+      }
+
+      // ═══ LOGS DE DIAGNÓSTICO DETALHADO ═══
+      console.group('[duplicatas AGUA] DIAGNÓSTICO');
+      console.log('Aba real encontrada:', abaReal);
+      console.log('Linhas lidas da planilha:', aoaRows.length);
+      console.log('Mês referência aplicado:', mesRef);
+      // Mostra as 3 últimas linhas da planilha (provavelmente as recém-gravadas)
+      console.log('Últimas 3 linhas (colunas A,K,L,M,N):');
+      aoaRows.slice(-3).forEach((r, i) => {
+        if (!r) return;
+        console.log(`  linha #${aoaRows.length - 3 + i + 1}:`, {
+          A_loja:    r[0],
+          K_emissao: r[10],
+          L_vcto:    r[11],
+          M_valor:   r[12],
+          N_mes:     r[13],
+          chave:     chaveDuplicataAgua(r[0], r[10], r[11], r[12], r[13])
+        });
+      });
+      // Mostra cada fatura sendo testada
+      console.log('Faturas sendo verificadas:');
+      faturas.forEach((f, i) => {
+        const ch = chaveDuplicataAgua(f.loja, f.data_emissao, f.vencimento, f.total_pagar, mesRef);
+        console.log(`  fatura #${i+1} (${f.arquivo}):`, {
+          loja:         f.loja,
+          data_emissao: f.data_emissao,
+          vencimento:   f.vencimento,
+          total_pagar:  f.total_pagar,
+          mes_aplicado: mesRef,
+          chave_gerada: ch || '(VAZIA — algum campo crítico faltando)',
+          ja_existe:    ch ? chavesExistentes.has(ch) : false
+        });
+      });
+      console.log('Total chaves únicas na planilha:', chavesExistentes.size);
+      console.log('Amostra das chaves da planilha:', [...chavesExistentes].slice(0, 5));
+      console.groupEnd();
+
+      const exemplos = [];
       faturasParaGravar = faturas.filter(f => {
-        const ch = chaveDuplicataAgua(f.numero_fatura, f.tipo, f.matricula);
-        if (ch && chavesExistentes.has(ch)) { duplicatas++; return false; }
+        const ch = chaveDuplicataAgua(f.loja, f.data_emissao, f.vencimento, f.total_pagar, mesRef);
+        if (ch && chavesExistentes.has(ch)) {
+          duplicatas++;
+          if (exemplos.length < 3) exemplos.push(`${f.arquivo} → ${ch}`);
+          return false;
+        }
         return true;
       });
+      console.log(`[duplicatas AGUA] resultado: ${duplicatas} duplicata(s) detectada(s) · ${faturasParaGravar.length} a gravar`);
     } catch (errDup) {
       console.warn('[ÁGUA] não foi possível verificar duplicatas:', errDup.message);
       // segue adiante sem bloquear
@@ -2192,6 +2262,11 @@ async function executarIntegracaoAgua(mesRef, dia) {
     await writable.write(resultado.blob);
     await writable.close();
 
+    // Invalida cache da planilha — agora os dados em memória estão desatualizados
+    cacheDadosPlanilha = {};
+    // Recarrega lista de lojas (pode ter loja nova)
+    carregarListaLojas(true).catch(() => {});
+
     const sufixoDup = duplicatas ? ` · ${duplicatas} duplicata(s) ignorada(s)` : '';
     setStatus(`✔ ${resultado.inseridas} fatura(s) de água gravada(s) em ${gasFileName} (mês ${mesRef}, boletim ${dia})${sufixoDup}.`, 'ok');
   } catch (err) {
@@ -2203,39 +2278,93 @@ async function executarIntegracaoAgua(mesRef, dia) {
   }
 }
 
-// Chave de duplicata ÁGUA: Nº Fatura | Fornecedor | Matrícula (tudo normalizado)
-function chaveDuplicataAgua(numFatura, fornecedor, matricula) {
-  const n = v => String(v || '').trim().toUpperCase().replace(/\s+/g, '');
-  const a = n(numFatura), b = n(fornecedor), c = n(matricula);
-  if (!a || !b) return '';
-  return `${a}|${b}|${c}`;
+// Chave de duplicata ÁGUA: Loja | Emissão | Vencimento | Valor | Mês Ref.
+// Esses campos batem 1:1 com colunas da aba AGUA da planilha (A, K, L, M, N)
+// e são suficientes pra identificar uma fatura única.
+function chaveDuplicataAgua(loja, dataEmissao, dataVcto, valor, mesRef) {
+  const txt = v => String(v == null ? '' : v).trim().toUpperCase();
+  // Normaliza datas para "DD/MM/AAAA" — aceita Date, número serial Excel,
+  // string DD/MM/AA, DD/MM/AAAA, ou AAAA-MM-DD
+  const norm = v => {
+    if (v == null || v === '') return '';
+    if (v instanceof Date && !isNaN(v)) {
+      const p = n => String(n).padStart(2, '0');
+      return `${p(v.getDate())}/${p(v.getMonth()+1)}/${v.getFullYear()}`;
+    }
+    // serial Excel (número entre ~10000 e ~80000 = datas de 1927 a 2118)
+    if (typeof v === 'number' && isFinite(v) && v > 0 && v < 80000) {
+      const base = new Date(Date.UTC(1899, 11, 30));
+      const d = new Date(base.getTime() + Math.round(v) * 86400000);
+      const p = n => String(n).padStart(2, '0');
+      return `${p(d.getUTCDate())}/${p(d.getUTCMonth()+1)}/${d.getUTCFullYear()}`;
+    }
+    const s = String(v).trim();
+    let m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
+    if (m) {
+      let [, d, mo, y] = m;
+      if (y.length === 2) y = '20' + y;
+      const p = n => String(n).padStart(2, '0');
+      return `${p(parseInt(d,10))}/${p(parseInt(mo,10))}/${y}`;
+    }
+    m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (m) {
+      const p = n => String(n).padStart(2, '0');
+      return `${p(parseInt(m[3],10))}/${p(parseInt(m[2],10))}/${m[1]}`;
+    }
+    return s.toUpperCase();
+  };
+  // Normaliza valor monetário pra número (em centavos, evita problema de float)
+  const valNorm = v => {
+    if (v == null || v === '') return '';
+    if (typeof v === 'number' && isFinite(v)) return Math.round(v * 100);
+    let s = String(v).trim().replace(/R\$\s*/i, '').replace(/\s/g, '');
+    if (!s) return '';
+    const temV = s.includes(','), temP = s.includes('.');
+    if (temV && temP) {
+      if (s.lastIndexOf(',') > s.lastIndexOf('.')) s = s.replace(/\./g, '').replace(',', '.');
+      else s = s.replace(/,/g, '');
+    } else if (temV) {
+      const partes = s.split(',');
+      if (partes.length > 2) s = s.replace(/,/g, '');
+      else if (partes[1] && partes[1].length === 3) s = s.replace(',', '');
+      else s = s.replace(',', '.');
+    } else if (temP) {
+      const partes = s.split('.');
+      if (partes.length > 2) s = s.replace(/\./g, '');
+      else if (partes[1] && partes[1].length === 3) s = s.replace('.', '');
+    }
+    const n = parseFloat(s);
+    return isFinite(n) ? Math.round(n * 100) : '';
+  };
+  const lojaN  = txt(loja);
+  const emiN   = norm(dataEmissao);
+  const vctoN  = norm(dataVcto);
+  const valN   = valNorm(valor);
+  const mesN   = txt(mesRef);
+  // Se faltam campos críticos, retorna chave vazia (nunca bate com nada)
+  if (!lojaN || !emiN || !vctoN || valN === '' || !mesN) return '';
+  return `${lojaN}|${emiN}|${vctoN}|${valN}|${mesN}`;
 }
 
-// Varre a aba AGUA e monta Set de chaves NºFatura|Fornecedor|Matrícula
+// Varre a aba AGUA e monta Set de chaves [Loja, Emissão, Vcto, Valor, Mês]
+// Usa POSIÇÃO FIXA de colunas (A=0, K=10, L=11, M=12, N=13) — não depende
+// dos nomes dos cabeçalhos. Ignora a primeira linha (cabeçalho).
 function construirChavesDuplicataAgua(dadosAba) {
   const chaves = new Set();
-  if (!dadosAba || !dadosAba.headers || !dadosAba.rows) return chaves;
-  const { headers, rows } = dadosAba;
-
-  const normHdr = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
-  let idxFatura = -1, idxFornec = -1, idxMatr = -1;
-  headers.forEach((h, i) => {
-    const n = normHdr(h);
-    if (idxFatura < 0 && (/FATURA/.test(n) || /\bNF\b/.test(n) || /NUMERO/.test(n))) idxFatura = i;
-    if (idxFornec < 0 && (/FORNECEDOR|EMPRESA|CONCESSION/.test(n))) idxFornec = i;
-    if (idxMatr   < 0 && (/MATRICULA|INSTALACAO|IDA/.test(n))) idxMatr = i;
-  });
-  // Se não detectar cabeçalhos, sai vazio — melhor não gerar duplicatas falsas
-  if (idxFatura < 0 || idxFornec < 0) return chaves;
-
+  if (!dadosAba || !dadosAba.rows) return chaves;
+  const rows = dadosAba.rows;
+  // Posição das colunas conforme o mapeamento da água: A, K, L, M, N
+  const IDX = { loja: 0, emi: 10, vcto: 11, val: 12, mes: 13 };
   for (const row of rows) {
+    if (!row) continue;
     const ch = chaveDuplicataAgua(
-      row[idxFatura],
-      row[idxFornec],
-      idxMatr >= 0 ? row[idxMatr] : ''
+      row[IDX.loja], row[IDX.emi], row[IDX.vcto], row[IDX.val], row[IDX.mes]
     );
     if (ch) chaves.add(ch);
   }
+  // Log de diagnóstico (visível no DevTools)
+  console.log('[duplicatas AGUA] chaves existentes na planilha:', chaves.size,
+              chaves.size > 0 ? '(amostra: ' + [...chaves].slice(0, 3).join(' ; ') + ')' : '');
   return chaves;
 }
 
@@ -4134,6 +4263,7 @@ function atualizarKpisAgua() {
 // Render da tabela de faturas de água no painel Dados
 const AGUA_COLS = [
   { key: 'arquivo',       label: 'Arquivo',       cls: 'td-desc' },
+  { key: 'loja',          label: 'Loja',          cls: 'td-code' },
   { key: 'tipo',          label: 'Fornecedor',    cls: '' },
   { key: 'matricula',     label: 'Matrícula',     cls: 'td-code' },
   { key: 'identificador', label: 'Identificador', cls: 'td-code' },
@@ -4148,6 +4278,11 @@ function renderDadosAgua() {
   const tbody = document.getElementById('tbody-dados');
   const thead = document.getElementById('thead-dados');
   if (!tbody || !thead) return;
+
+  // Garante que a lista de lojas (datalist) está populada — só carrega 1x
+  if (gasFileHandle && _lojasCacheArr === null && !_lojasCarregando) {
+    carregarListaLojas().catch(() => {});
+  }
 
   const dados = (window.Agua && window.Agua.getDados()) || [];
   const totalCols = AGUA_COLS.length + 1; // +1 pelo botão de remover
@@ -4199,6 +4334,26 @@ function renderDadosAgua() {
         const nome = esc(v || '—');
         return `<td class="td-desc" title="${nome}"><span style="cursor:pointer;" onclick="abrirDebugAgua('${nomeEsc}')">${nome}</span></td>`;
       }
+      if (c.key === 'loja') {
+        // <select> com a lista fixa de lojas (LOJAS_AGUA) — clica e escolhe
+        // Garante que a lista está carregada (idempotente, é instantâneo)
+        if (_lojasCacheArr === null) {
+          _lojasCacheArr = [...LOJAS_AGUA];
+        }
+        const lojaVal = String(v || '');
+        const lojas = _lojasCacheArr;
+        const opts = ['<option value="">— selecione —</option>']
+          .concat(lojas.map(l => {
+            const sel = (String(l) === lojaVal) ? ' selected' : '';
+            return `<option value="${esc(l)}"${sel}>${esc(l)}</option>`;
+          }));
+        // Se o valor atual não está na lista (ex: loja nova fora da convenção), preserva
+        if (lojaVal && !lojas.map(String).includes(lojaVal)) {
+          opts.splice(1, 0, `<option value="${esc(lojaVal)}" selected>${esc(lojaVal)} (manual)</option>`);
+        }
+        const corBorda = lojaVal ? 'var(--mint)' : 'var(--rim2)';
+        return `<td class="td-code"><select onchange="setLojaAgua('${nomeEsc}', this.value); this.style.borderColor = this.value ? 'var(--mint)' : 'var(--rim2)';" style="background:var(--panel2);border:1px solid ${corBorda};color:var(--ice);padding:3px 7px;border-radius:4px;width:110px;font-family:var(--font-ui);font-size:11px;text-align:center;outline:none;cursor:pointer;">${opts.join('')}</select></td>`;
+      }
       if (c.key === 'tipo') {
         return `<td><span style="display:inline-block;background:rgba(0,201,255,0.12);color:var(--neon2);padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;letter-spacing:.3px;">${esc(v || 'DESCONHECIDO')}</span></td>`;
       }
@@ -4218,16 +4373,13 @@ async function importarPdfsAgua(fileList) {
   document.querySelector('#loader .loader-txt').textContent = 'Carregando bibliotecas PDF…';
 
   try {
+    document.querySelector('#loader .loader-txt').textContent = 'Processando PDFs…';
     await window.Agua.addFiles(fileList, {
       onAdd: n => {
         if (!n) setStatus('Nenhum PDF novo pra processar (arquivos já estão na lista).', 'err');
       },
       onProgress: ({ i, total, arq, phase }) => {
-        if (phase === 'start') {
-          document.querySelector('#loader .loader-txt').textContent =
-            `Processando ${i + 1}/${total}: ${arq.name}`;
-        }
-        // atualiza a tabela em tempo real
+        // atualiza a tabela em tempo real (sem exibir nome do arquivo no loader)
         renderDadosAgua();
         atualizarKpisAgua();
       },
@@ -4253,6 +4405,84 @@ function removerFaturaAgua(nome) {
   window.Agua.removerArquivo(nome);
   renderDadosAgua();
   atualizarKpisAgua();
+}
+
+// Valida visualmente o input da coluna Loja:
+//   - vazio: borda neutra (cinza)
+//   - valor está na lista cacheada de lojas: borda verde (mint)
+//   - valor digitado fora da lista: borda laranja (warm) — não bloqueia, é só aviso
+function validarInputLoja(input) {
+  if (!input) return;
+  const v = String(input.value || '').trim();
+  if (!v) {
+    input.style.borderColor = 'var(--rim2)';
+    input.title = '';
+    return;
+  }
+  const lista = _lojasCacheArr || [];
+  if (lista.length === 0 || lista.includes(v)) {
+    // ou não temos cache (ainda não vinculou) ou o valor existe — verde
+    input.style.borderColor = 'var(--mint)';
+    input.title = '';
+  } else {
+    input.style.borderColor = 'var(--warm)';
+    input.title = 'Loja não consta na planilha — confira ou continue se for nova';
+  }
+}
+
+// Atualiza a loja de uma fatura específica (chamada pelo input da coluna Loja)
+function setLojaAgua(nomeArquivo, valor) {
+  if (!window.Agua || !window.Agua.setLoja) return;
+  window.Agua.setLoja(nomeArquivo, valor);
+  // Não re-renderiza a tabela inteira pra não tirar o foco de campos sendo editados.
+  // O valor já foi gravado no objeto da fatura.
+}
+
+// ─── Lista de Lojas para a aba ÁGUA ───
+// Lista fixa de códigos de loja válidos para faturas de água (fornecida pelo usuário).
+// Mantém a ordem original — primeiro o bloco numérico sequencial 201-289,
+// depois os códigos especiais (11, 8, 2418, ..., 780).
+const LOJAS_AGUA = [
+  '201','202','203','204','205','206','207','208','209','210',
+  '211','212','213','214','215','216','217','218','219','220',
+  '221','222','223','224','225','226','227','228','229','230',
+  '231','232','233','234','235','236','237','238','239','240',
+  '241','242','244','245','246','247','248','249','250','251',
+  '252','253','254','255','256','257','258','259','260','261',
+  '262','263','264','265','267','268','269','271','272','273',
+  '274','276','277','278','279','280','281','283','284','285',
+  '286','287','288','289',
+  '11','8','2418','2460','9875','4870','5246','5872','6915',
+  '7966','8031','6605','8497','6621','9690','9815','6534','1936','780'
+];
+
+// Cache da lista efetiva (atualmente apenas LOJAS_AGUA, mas mantido como
+// variável caso queiramos mesclar com lojas da planilha no futuro).
+let _lojasCacheArr = null;
+let _lojasCarregando = false;
+
+async function carregarListaLojas(forcar) {
+  // Lista fixa — só inicializa o cache uma vez
+  if (_lojasCacheArr && !forcar) return _lojasCacheArr;
+  _lojasCacheArr = [...LOJAS_AGUA];
+  atualizarDatalistLojas();
+  // Re-renderiza a tabela pra atualizar os <select> com a lista populada
+  if (typeof renderDadosAgua === 'function') {
+    try { renderDadosAgua(); } catch (e) {}
+  }
+  return _lojasCacheArr;
+}
+
+// Atualiza o elemento <datalist> com os valores do cache (mantido por
+// compatibilidade, embora o input agora seja <select>)
+function atualizarDatalistLojas() {
+  let dl = document.getElementById('datalist-lojas');
+  if (!dl) {
+    dl = document.createElement('datalist');
+    dl.id = 'datalist-lojas';
+    document.body.appendChild(dl);
+  }
+  dl.innerHTML = (_lojasCacheArr || []).map(l => `<option value="${escapeHtml(l)}"></option>`).join('');
 }
 
 function limparDadosAgua() {
@@ -4440,6 +4670,13 @@ function copiarDebugAgua() {
 function detectarTipo(txt) {
   const u = txt.toUpperCase();
   if (u.includes('COPASA')||u.includes('COMPANHIA DE SANEAMENTO')) return 'COPASA';
+  // DMAE Poços de Caldas — antes do DMAE Uberlândia (ambos têm "DEPARTAMENTO MUNICIPAL DE")
+  // Identificadores únicos: CNPJ 17.851.361/0001-44, "POÇOS DE CALDAS" no nome
+  if (u.includes('17.851.361')||u.includes('17851361')||
+      (u.includes('DMAE')&&(u.includes('POÇOS DE CALDAS')||u.includes('POCOS DE CALDAS'))) ||
+      (u.includes('DEPARTAMENTO MUNICIPAL DE')&&(u.includes('POÇOS DE CALDAS')||u.includes('POCOS DE CALDAS')))) {
+    return 'DMAE_POCOS';
+  }
   if (u.includes('D.M.A.E')||u.includes('DMAE')||u.includes('UBERLANDIA')||u.includes('UBERLÂNDIA')||u.includes('DEPARTAMENTO MUNICIPAL DE')) return 'DMAE';
   if (u.includes('SAE - SUPERINTEN')||u.includes('SUPERINTENDENCIA DE AGUA')||u.includes('SAE ARARAQUARA')) return 'SAE';
   if (u.includes('VALADARES SPE')||u.includes('AGUAS DE GOVERNADOR')||u.includes('ÁGUAS DE GOVERNADOR')) return 'AGUAS_GOV_VALADARES';
@@ -4596,6 +4833,72 @@ function extrairCampos(texto, tipo) {
     consumo = primeiroValido(texto,
       [String.raw`(\d+)\s*m[³3]`],
       [String.raw`CONSUMO[^a-z]*(\d+)`]
+    ) || '0';
+  }
+
+  else if (tipo === 'DMAE_POCOS') {
+    // ===== DMAE Poços de Caldas =====
+    // ATENÇÃO ao layout: o pdf-parse extrai o texto coluna-por-coluna,
+    // então labels e valores ficam em LINHAS DIFERENTES e às vezes
+    // intercalados com outros campos. Por isso os regex usam [\s\S]{0,N}?
+    // para "atravessar" linhas sem ficar greedy.
+    //
+    // Layout típico:
+    //   MATRÍCULA LOCALIZAÇÃO GRUPO/ROTA CATEGORIA  ← linha de labels
+    //   63202-61 49-12-1229-00063202 49/12 ...      ← linha de valores
+    //
+    //   DATA DA LEITURA LEITURA ANTERIOR ... CONSUMO FATURADO OCORRÊNCIA
+    //   HIDRÔMETRO
+    //   24/04/2026 386 624 238 238 NORMAL
+    //   A20L238200
+    //
+    //   VENCIMENTO ... 05/05/2026 ... TOTAL A PAGAR ... R$ 5.482,40
+
+    // Matrícula: formato XXXXX-NN logo após o label "MATRÍCULA"
+    matricula = primeiroValido(texto,
+      [String.raw`MATR[ÍI]CULA[\s\S]{0,80}?\n\s*(\d{4,7}-\d{1,3})`]
+    );
+
+    // Hidrômetro: linha sozinha após o bloco da tabela de leituras
+    // Padrão típico: A20L238200 (letra + 2 dígitos + letra + 6 dígitos)
+    identificador = primeiroValido(texto,
+      [String.raw`HIDR[ÔO]METRO\s*\n[^\n]*\n([A-Z]\d+[A-Z]\d+)`],
+      [String.raw`HIDR[ÔO]METRO[\s\S]{0,150}?\n([A-Z]\d{2}[A-Z]\d{6,})`]
+    );
+
+    // Nº Fatura = LOCALIZAÇÃO (formato único: NN-NN-NNNN-NNNNNNNN)
+    numero_fatura = primeiroValido(texto,
+      [String.raw`\b(\d{2}-\d{2}-\d{4}-\d{8})\b`]
+    );
+
+    // Emissão = Data da Leitura (acordado com usuário, fatura não tem campo de emissão)
+    // Aparece na linha de valores após o label "DATA DA LEITURA ..."
+    data_emissao = primeiroValido(texto,
+      [String.raw`DATA\s+DA\s+LEITURA[\s\S]{0,200}?\n(\d{2}/\d{2}/\d{4})`]
+    );
+
+    // Vencimento — múltiplas estratégias em ordem de preferência:
+    //  1) "VENCIMENTO\n63202 05/05/2026" (formato do rodapé)
+    //  2) Data sozinha numa linha imediatamente antes de "TOTAL A PAGAR"
+    //  3) Após "VENCIMENTO" — qualquer data sem horário junto
+    vencimento = primeiroValido(texto,
+      [String.raw`VENCIMENTO\s*\n\d+\s+(\d{2}/\d{2}/\d{4})`],
+      [String.raw`(\d{2}/\d{2}/\d{4})\s*\n[^\n]*TOTAL\s+A\s+PAGAR`],
+      [String.raw`VENCIMENTO[\s\S]{0,200}?(\d{2}/\d{2}/\d{4})(?!\s+\d{2}:\d{2})`]
+    );
+
+    // Total a pagar — o valor pode estar em linhas diferentes do label,
+    // por causa do layout em colunas. Pega o último match (rodapé).
+    const totRaw = primeiroValido(texto,
+      [String.raw`TOTAL\s+A\s+PAGAR[\s\S]{0,200}?R\$\s*([\d\.]+,\d{2})`]
+    );
+    total = fmtValor(totRaw);
+
+    // Consumo faturado: 5ª coluna na linha de valores da tabela de leituras
+    // "DATA LEITURA-ANT LEITURA-ATUAL CONS-LIDO CONS-FATURADO OCORRÊNCIA"
+    consumo = primeiroValido(texto,
+      [String.raw`CONSUMO\s+FATURADO\s+OCORR[ÊE]NCIA[\s\S]{0,200}?\n[\d/]+\s+\d+\s+\d+\s+\d+\s+(\d+)`],
+      [String.raw`\d{2}/\d{2}/\d{4}\s+\d+\s+\d+\s+\d+\s+(\d+)\s+[A-Z]`]
     ) || '0';
   }
 
@@ -5085,10 +5388,20 @@ function extrairCampos(texto, tipo) {
     return nome;
   }
 
+  // Define a loja para uma fatura específica (pelo nome do arquivo)
+  function setLoja(nomeArquivo, valorLoja) {
+    const r = resultados.find(x => x.arquivo === nomeArquivo);
+    if (r) {
+      r.loja = String(valorLoja || '').trim();
+      return true;
+    }
+    return false;
+  }
+
   // Expõe API
   window.Agua = {
     addFiles, limpar, removerArquivo, exportarExcel,
-    getDados, getArquivos, getTexto,
+    getDados, getArquivos, getTexto, setLoja,
   };
 })();
 
