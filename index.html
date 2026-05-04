@@ -382,6 +382,7 @@ tbody td.td-hfp   { color: var(--warm);  font-weight: 600; font-variant-numeric:
       <div>
         <label style="font-size:11px;color:var(--fog);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:6px;">Mês de referência (col. K) *</label>
         <select id="sel-mes-ref" class="modal-select"
+                onchange="atualizarHintBoletim()"
                 style="width:100%;background:var(--panel2);border:1px solid var(--rim);color:var(--ice);padding:10px 12px;border-radius:8px;font-family:var(--font-ui);font-size:14px;outline:none;">
           <option value="">— Selecione —</option>
           <option value="1">1 — Janeiro</option>
@@ -1907,7 +1908,102 @@ async function integrarPlanilhaGasDireto() {
   abrirModalIntegrarGas(notas.length);
 }
 
-function abrirModalIntegrarGas(qtdNotas) {
+// Lê a planilha vinculada e retorna o maior boletim para a categoria + mês informados.
+// mes = inteiro 1-12. Retorna { max } ou null.
+async function lerUltimoBoletimDaPlanilha(categoria, mes) {
+  if (!gasFileHandle || mes == null) return null;
+  try {
+    const file = await gasFileHandle.getFile();
+    const buffer = await file.arrayBuffer();
+    const zip = await JSZip.loadAsync(buffer);
+
+    const INFO = {
+      gas:     { abaAlvo: 'GAS',     colBoletim: 'R', colMes: 'K' },
+      energia: { abaAlvo: 'ENERGIA', colBoletim: 'P', colMes: 'O' },
+      agua:    { abaAlvo: 'AGUA',    colBoletim: 'Q', colMes: 'N' },
+    };
+    const info = INFO[categoria] || INFO['gas'];
+    const normalizar = s => (s || '').toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
+
+    const wbXml = await zip.file('xl/workbook.xml').async('string');
+    const sheetMatches = [...wbXml.matchAll(/<sheet\b[^>]*\bname="([^"]+)"[^>]*\br:id="([^"]+)"[^>]*\/?>/g)];
+    const sheet = sheetMatches.find(m => normalizar(m[1]) === normalizar(info.abaAlvo));
+    if (!sheet) return null;
+
+    const relsXml = await zip.file('xl/_rels/workbook.xml.rels').async('string');
+    const relMatch = new RegExp(`<Relationship\\b[^>]*\\bId="${sheet[2]}"[^>]*\\bTarget="([^"]+)"`).exec(relsXml);
+    if (!relMatch) return null;
+    let sheetPath = relMatch[1];
+    if (!sheetPath.startsWith('/')) sheetPath = 'xl/' + sheetPath.replace(/^\.\//, '');
+    else sheetPath = sheetPath.replace(/^\//, '');
+
+    const sheetXml = await zip.file(sheetPath).async('string');
+
+    // Monta mapa linha → valor do mês e linha → valor do boletim
+    const linhasMes = new Map();
+    const linhasBol = new Map();
+    const cellRegex = /<c\b[^>]*\br="([A-Z]+)(\d+)"[^>]*?(\/>|>([\s\S]*?)<\/c>)/g;
+    let mc;
+    while ((mc = cellRegex.exec(sheetXml)) !== null) {
+      const col   = mc[1];
+      const linha = parseInt(mc[2], 10);
+      if (linha <= 1) continue;
+      const selfClosing = mc[3] === '/>';
+      const conteudo = selfClosing ? '' : (mc[4] || '');
+      const vMatch = /<v>([\s\S]*?)<\/v>/.exec(conteudo);
+      if (!vMatch) continue;
+      const val = parseFloat(vMatch[1]);
+      if (isNaN(val)) continue;
+      if (col === info.colMes)     linhasMes.set(linha, val);
+      if (col === info.colBoletim) linhasBol.set(linha, val);
+    }
+
+    // Máximo boletim entre linhas onde o mês bate
+    let maxBoletim = 0;
+    for (const [linha, mesVal] of linhasMes) {
+      if (Math.round(mesVal) !== mes) continue;
+      const bol = linhasBol.get(linha);
+      if (bol != null && bol > maxBoletim) maxBoletim = bol;
+    }
+    return { max: maxBoletim };
+  } catch (e) {
+    console.warn('[lerUltimoBoletim] erro:', e);
+    return null;
+  }
+}
+
+// Chamado pelo onchange do sel-mes-ref no modal de integração
+async function atualizarHintBoletim() {
+  const mesVal = document.getElementById('sel-mes-ref')?.value;
+  const mes = mesVal ? parseInt(mesVal, 10) : null;
+  const hintEl = document.getElementById('integrar-hint-boletim');
+  if (!hintEl) return;
+
+  if (!mes) { hintEl.textContent = ''; return; }
+
+  hintEl.textContent = '🔍 Consultando planilha…';
+  hintEl.style.color = 'var(--fog)';
+
+  // detecta categoria pelo título do modal (agua muda o título)
+  const titulo = document.querySelector('#modal-integrar-gas .modal-title');
+  let cat = (typeof categoriaDados !== 'undefined' ? categoriaDados : 'gas');
+  if (titulo && /água/i.test(titulo.textContent)) cat = 'agua';
+
+  const resultado = await lerUltimoBoletimDaPlanilha(cat, mes);
+  const selDia = document.getElementById('sel-dia');
+  if (!resultado || resultado.max === 0) {
+    hintEl.textContent = 'Nenhum boletim lançado para este mês.';
+    hintEl.style.color = 'var(--fog)';
+    if (selDia) selDia.value = '';
+  } else {
+    const ultimo = resultado.max;
+    hintEl.innerHTML = `Último boletim lançado: <strong style="color:var(--warm);">Nº ${ultimo}</strong>&nbsp;·&nbsp;pré-selecionado abaixo`;
+    hintEl.style.color = 'var(--mist)';
+    if (selDia) selDia.value = String(ultimo);
+  }
+}
+
+async function abrirModalIntegrarGas(qtdNotas) {
   // Popula o seletor de dia (1..30) se estiver vazio
   const selDia = document.getElementById('sel-dia');
   if (selDia && selDia.options.length <= 1) {
@@ -1918,13 +2014,23 @@ function abrirModalIntegrarGas(qtdNotas) {
       selDia.appendChild(opt);
     }
   }
-  // Reseta os seletores (regra: sempre em branco)
+  // Reseta os seletores
   document.getElementById('sel-mes-ref').value = '';
   if (selDia) selDia.value = '';
 
-  // Atualiza info
+  // Info principal
   const info = document.getElementById('integrar-info-notas');
   if (info) info.textContent = `${qtdNotas} nota(s) serão integradas · mês e boletim serão aplicados a todas`;
+
+  // Cria hint (uma vez) e limpa
+  let hintEl = document.getElementById('integrar-hint-boletim');
+  if (!hintEl) {
+    hintEl = document.createElement('div');
+    hintEl.id = 'integrar-hint-boletim';
+    hintEl.style.cssText = 'font-size:11px;margin-top:6px;min-height:16px;';
+    if (info && info.parentNode) info.parentNode.insertBefore(hintEl, info.nextSibling);
+  }
+  hintEl.textContent = '';
 
   document.getElementById('modal-integrar-gas').classList.add('show');
 }
@@ -2089,7 +2195,7 @@ async function integrarPlanilhaAguaDireto() {
   abrirModalIntegrarAgua(faturas.length);
 }
 
-function abrirModalIntegrarAgua(qtdFaturas) {
+async function abrirModalIntegrarAgua(qtdFaturas) {
   // Popula o seletor de dia (1..30) se estiver vazio — reaproveita o modal do gás
   const selDia = document.getElementById('sel-dia');
   if (selDia && selDia.options.length <= 1) {
@@ -2105,6 +2211,16 @@ function abrirModalIntegrarAgua(qtdFaturas) {
 
   const info = document.getElementById('integrar-info-notas');
   if (info) info.textContent = `${qtdFaturas} fatura(s) de água serão integradas · mês e boletim serão aplicados a todas`;
+
+  // Cria hint (uma vez) e limpa
+  let hintEl = document.getElementById('integrar-hint-boletim');
+  if (!hintEl) {
+    hintEl = document.createElement('div');
+    hintEl.id = 'integrar-hint-boletim';
+    hintEl.style.cssText = 'font-size:11px;margin-top:6px;min-height:16px;';
+    if (info && info.parentNode) info.parentNode.insertBefore(hintEl, info.nextSibling);
+  }
+  hintEl.textContent = '';
 
   // Troca o handler do botão "Integrar" temporariamente pra confirmarIntegrarAgua
   const btnConfirmar = document.querySelector('#modal-integrar-gas .modal-btn.primary');
