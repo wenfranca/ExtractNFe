@@ -795,16 +795,43 @@ async function handleFiles(files) {
 
       let numeroNF, dhEmi, cnpjEmit, nomeEmit, cnpjCpfDest, dVenc, vNF, modelo;
 
+      // Helpers robustos a namespace (NF3-e usa xmlns):
+      // findByName: primeiro elemento descendente com aquele localName
+      // childByName: primeiro filho DIRETO de um pai com aquele localName
+      const findByName = (root, name) => {
+        if (!root) return null;
+        const all = root.getElementsByTagName('*');
+        for (const el of all) if (el.localName === name) return el;
+        return null;
+      };
+      const childByName = (parent, name) => {
+        if (!parent) return null;
+        for (const ch of parent.children) if (ch.localName === name) return ch;
+        return null;
+      };
+      const txtByName = (root, name) => {
+        const el = findByName(root, name);
+        return el ? el.textContent.trim() : null;
+      };
+      const txtChildByName = (parent, name) => {
+        const el = childByName(parent, name);
+        return el ? el.textContent.trim() : null;
+      };
+
       if (isNF3) {
         // ── NF3-e (energia elétrica - CEMIG etc) ──
         modelo      = 'NF3-e';
-        numeroNF    = g('nNF');
-        dhEmi       = g('dhEmi');
-        cnpjEmit    = g('emit > CNPJ');
-        nomeEmit    = g('emit > xNome');
-        cnpjCpfDest = g('dest > CNPJ') || g('dest > CPF');
-        dVenc       = g('gFat > dVencFat');          // campo específico NF3-e
-        vNF         = g('total > vNF');
+        const emitEl = findByName(doc, 'emit');
+        const destEl = findByName(doc, 'dest');
+        numeroNF    = txtByName(doc, 'nNF');
+        dhEmi       = txtByName(doc, 'dhEmi');
+        cnpjEmit    = txtChildByName(emitEl, 'CNPJ');
+        nomeEmit    = txtChildByName(emitEl, 'xNome');
+        cnpjCpfDest = txtChildByName(destEl, 'CNPJ') || txtChildByName(destEl, 'CPF');
+        dVenc       = txtByName(doc, 'dVencFat');     // gFat > dVencFat na NF3-e
+        // total > vNF (evita pegar vNF interno de impostos se houver)
+        const totalEl = findByName(doc, 'total');
+        vNF         = txtChildByName(totalEl, 'vNF') || txtByName(doc, 'vNF');
       } else {
         // ── NF-e (mod 55) ──
         modelo      = 'NF-e';
@@ -817,35 +844,65 @@ async function handleFiles(files) {
         vNF         = g('ICMSTot > vNF');
       }
 
-      const loja        = extrairLoja(cnpjCpfDest);
+      // Captura IE do destinatário e idAcesso (NF3-e) para resolução de loja
+      let ieDest = null, idAcesso = null;
+      if (isNF3) {
+        const destEl2 = findByName(doc, 'dest');
+        ieDest   = txtChildByName(destEl2, 'IE');
+        const acessanteEl = findByName(doc, 'acessante');
+        idAcesso = txtByName(acessanteEl, 'idAcesso');
+      } else {
+        ieDest = g('dest > IE');
+      }
+
+      const loja        = extrairLoja(cnpjCpfDest, ieDest, idAcesso);
+
+      // Sobrescreve o CNPJ destinatário com o CNPJ canônico da loja
+      // (corrige casos em que a concessionária cadastrou a UC com CNPJ de outra filial).
+      // Mantém o CNPJ original se a loja não estiver no mapa (gás, fornecedores etc).
+      if (loja && LOJA_TO_CNPJ[loja]) {
+        cnpjCpfDest = LOJA_TO_CNPJ[loja];
+      }
+
       const dataEmissao = dhEmi ? dhEmi.substring(0,10) : null;
       const vencimento  = dVenc ? dVenc.substring(0,10) : null;
       const totalNF     = vNF ? parseFloat(vNF) : 0;
 
       // ── itens ──
       // NF3-e: NFdet > det > detItem > prod  |  NF-e: det > prod
-      const detNodes = isNF3
-        ? doc.querySelectorAll('NFdet > det')
-        : doc.querySelectorAll('det');
+      // Para NF3-e usamos busca por localName (robusto a namespace)
+      let detNodes;
+      if (isNF3) {
+        const nfdet = findByName(doc, 'NFdet');
+        detNodes = nfdet ? Array.from(nfdet.children).filter(c => c.localName === 'det') : [];
+      } else {
+        detNodes = doc.querySelectorAll('det');
+      }
 
       let qtdTotal=0, qtdHP=0, qtdHFP=0;
       for (const det of detNodes) {
         const gd  = tag => { const el=det.querySelector(tag); return el?el.textContent.trim():null; };
+        // versão namespace-safe para NF3-e
+        const gdN = name => txtByName(det, name);
 
         if (isNF3) {
-          const xProd  = (gd('xProd') || '').toUpperCase();
-          const qtdFat = parseFloat(gd('qFaturada') || '0');
-          const vUni   = parseFloat(gd('vItem')  || '0');
-          const vPrd   = parseFloat(gd('vProd')  || '0');
+          const xProdRaw = gdN('xProd') || '';
+          const xProd    = xProdRaw.toUpperCase();
+          const qtdFat   = parseFloat(gdN('qFaturada') || '0');
+          const vUni     = parseFloat(gdN('vItem')  || '0');
+          const vPrd     = parseFloat(gdN('vProd')  || '0');
+          const uMed     = gdN('uMed') || '';
 
-          // Detecta posto tarifário pela descrição do item
-          // Ex: "Componente Encargo HFP kWh" ou "Componente Encargo HP kWh"
-          const isHFP = /\bHFP\b/.test(xProd);
-          const isHP  = !isHFP && /\bHP\b/.test(xProd);
+          // Captura HFP/HP APENAS de itens de consumo de energia em kWh
+          // ("Componente Encargo HFP" / "Componente Encargo HP", uMed=2 = kWh).
+          // Itens em kW (Fio), R$ (Ajustes/Descontos/Autoprodução) e Reativa NÃO entram
+          // para evitar dupla contagem e mistura de unidades.
+          const isEncargoHFP = /\bCOMPONENTE\s+ENCARGO\s+HFP\b/.test(xProd);
+          const isEncargoHP  = /\bCOMPONENTE\s+ENCARGO\s+HP\b/.test(xProd);
 
           let itemHP=0, itemHFP=0;
-          if      (isHP)  itemHP  = qtdFat;
-          else if (isHFP) itemHFP = qtdFat;
+          if      (isEncargoHP)  itemHP  = qtdFat;
+          else if (isEncargoHFP) itemHFP = qtdFat;
 
           qtdHP    += itemHP;
           qtdHFP   += itemHFP;
@@ -856,9 +913,9 @@ async function handleFiles(files) {
             'Numero NF':     numeroNF,
             'Loja':          loja,
             'Data Emissão':  dataEmissao,
-            'Descrição':     gd('xProd'),
-            'NCM':           gd('cClass') || gd('NCM'),
-            'CFOP':          gd('CFOP'),
+            'Descrição':     xProdRaw,
+            'NCM':           gdN('cClass') || gdN('NCM'),
+            'CFOP':          gdN('CFOP'),
             'HP':            itemHP   || null,
             'HFP':           itemHFP  || null,
             'Quantidade':    qtdFat,
@@ -919,7 +976,157 @@ async function handleFiles(files) {
   refresh();
 }
 
-function extrairLoja(v) { if(v&&v.length>=4) return parseInt('2'+v.slice(-4,-2)); return null; }
+// ====== MAPA OFICIAL CNPJ → LOJA (90 filiais Mart Minas) ======
+const CNPJ_TO_LOJA = {
+  '04737552000138':201,'04737552000219':202,'04737552000308':203,'04737552000480':204,
+  '04737552000561':205,'04737552000642':206,'04737552000723':207,'04737552000804':208,
+  '04737552000995':209,'04737552001029':210,'04737552001100':211,'04737552001290':212,
+  '04737552001371':213,'04737552001452':214,'04737552001533':215,'04737552001614':216,
+  '04737552001703':217,'04737552001886':218,'04737552001967':219,'04737552002009':220,
+  '04737552002181':221,'04737552002262':222,'04737552002343':223,'04737552002424':224,
+  '04737552002505':225,'04737552002696':226,'04737552002777':227,'04737552002858':228,
+  '04737552002939':229,'04737552003072':230,'04737552003153':231,'04737552003234':232,
+  '04737552003315':233,'04737552003404':234,'04737552003587':235,'04737552003668':236,
+  '04737552003749':237,'04737552003820':238,'04737552003900':239,'04737552004044':240,
+  '04737552004125':241,'04737552004206':242,'04737552004397':243,'04737552004478':244,
+  '04737552004559':245,'04737552004630':246,'04737552004710':247,'04737552004800':248,
+  '04737552004982':249,'04737552005016':250,'04737552005105':251,'04737552005288':252,
+  '04737552005369':253,'04737552005440':254,'04737552005520':255,'04737552005601':256,
+  '04737552005792':257,'04737552005873':258,'04737552005954':259,'04737552006098':260,
+  '04737552006179':261,'04737552006250':262,'04737552006330':263,'04737552006411':264,
+  '04737552006500':265,'04737552006683':266,'04737552006764':267,'04737552006845':268,
+  '04737552006926':269,'04737552007060':270,'04737552007140':271,'04737552007221':272,
+  '04737552007302':273,'04737552007493':274,'04737552007574':275,'04737552007655':276,
+  '04737552007736':277,'04737552007817':278,'04737552007906':279,'04737552008031':280,
+  '04737552008112':281,'04737552008201':282,'04737552008384':283,'04737552008465':284,
+  '04737552008546':285,'04737552008627':286,'04737552008708':287,'04737552008899':288,
+  '04737552008970':289,'04737552009003':290
+};
+
+// ====== MAPA IE → LOJA (mesma lista, indexada pela IE) ======
+// Útil quando a CEMIG cadastra a UC com CNPJ "errado" mas a IE está certa.
+const IE_TO_LOJA = {
+  '2231523810018':201,'1861523810141':202,'2231523810271':203,'2231523810352':204,
+  '2231523810433':205,'2231523810506':206,'2231523810689':207,'148958516112':208,
+  '2231523810760':209,'2231523810840':210,'2231523810921':211,'2231523811006':212,
+  '2231523811189':213,'2231523811260':214,'2231523811340':215,'2231523811421':216,
+  '2231523811596':217,'2231523811677':218,'2231523811758':219,'2231523811839':220,
+  '2231523811910':221,'2231523812096':222,'2231523812177':223,'2231523812258':224,
+  '2231523812339':225,'2231523812410':226,'2231523812584':227,'2231523812665':228,
+  '2231523812746':229,'2231523812827':230,'2231523812908':231,'2231523813084':232,
+  '2231523813165':233,'2231523813246':234,'2231523813327':235,'2231523813572':236,
+  '2231523813408':237,'2231523813653':238,'2231523813734':239,'2231523813815':240,
+  '2231523813998':241,'2231523814072':242,'2231523814153':243,'2231523814234':244,
+  '2231523814315':245,'2231523814498':246,'2231238144560':247,'2231523814641':248,
+  '2231523814722':249,'2231523814803':250,'2231523814986':251,'2231523815060':252,
+  '2231523815141':253,'2231523815222':254,'2231523815486':255,'2231523815303':256,
+  '2231523815559':257,'2231523815893':258,'2231523815630':259,'2231523815710':260,
+  '2231523815974':261,'2231523816059':262,'2231523816130':263,'2231523816210':264,
+  '2231523816393':265,'2231523816474':266,'2231523816574':267,'2231523816628':268,
+  '2231523816709':269,'2231523816547':270,'2231523816881':271,'2231523816962':272,
+  '2231523817047':273,'2231523817128':274,'2231523817209':275,'2231523817381':276,
+  '2231523817462':277,'2231523817535':278,'2231523817616':279,'2231523817799':280,
+  '2231523817870':281,'2231523817950':282,'2231523818035':283,'2231523818299':284,
+  '2231523818370':285,'2231523818450':286,'2231523818116':287,'2231523818604':288,
+  '2231523818523':289,'2231523818787':290
+};
+
+// ====== MAPA UC → LOJA (Unidade Consumidora de energia) ======
+// Fonte: cadastro oficial Mart Minas. Tem prioridade máxima sobre IE/CNPJ
+// porque a UC é única por ponto físico de medição — quando a CEMIG cadastra
+// a UC com CNPJ/IE divergente, a UC ainda aponta pra loja correta.
+//
+// Chave: só-dígitos (ou alfanumérico p/ não-CEMIG), SEM zeros à esquerda.
+// O XML costuma trazer a UC prefixada com zeros (ex: '001216391101831');
+// o lookup remove esses zeros antes de consultar o mapa.
+//
+// Lojas sem UC cadastrada: 276, 283, 284, 285, 286, 287, 288, 289, 290 —
+// caem no fallback IE/CNPJ.
+//
+// UCs alfanuméricas (não-CEMIG): 220, 242, 255, 264.
+const IDACESSO_TO_LOJA = {
+  // CEMIG (formato XX.XXX.XXX.018-XX → só-dígitos)
+  '1005138601828': 201, '1005129301865': 202, '906915101849':  203,
+  '1176722801832': 204, '702630401878':  205, '753845401861':  206,
+  '1005120001852': 207, '829449301872':  209, '879244701822':  210,
+  '1026636001880': 211, '899934301829':  213, '915250901803':  214,
+  '907503801848':  215, '874783501803':  216, '904841101860':  217,
+  '918714001804':  218, '947268101843':  219, '969580901859':  221,
+  '971841001822':  222, '994391901847':  223, '701624001804':  224,
+  '1023622501879': 225, '1030827201815': 226, '1030642601895': 227,
+  '1043168501824': 228, '1043538501868': 229, '1075350601860': 230,
+  '1060227801812': 231, '1060136801844': 232, '1063861901850': 233,
+  '1061353601844': 234, '1086058701814': 235, '1075044101878': 236,
+  '1131380501820': 237, '1086833901856': 238, '1080895401876': 239,
+  '1112332901850': 240, '1104173801875': 241, '1116785801843': 244,
+  '1125423801843': 245, '1125427201828': 246, '1133220801804': 247,
+  '1131888901869': 248, '1140410701854': 249, '1139854501892': 250,
+  '1112389501822': 251, '1131383501875': 252, '1133223401898': 253,
+  '1152184301892': 254, '1187492101816': 256, '1160320001814': 257,
+  '1165507001844': 258, '1161605201802': 259, '1159239301881': 260,
+  '1176718701860': 261, '1125416801810': 262, '1223178701866': 263,
+  '1159240901866': 265, '1203581201878': 267, '1247595001895': 268,
+  '786138801853':  269, '1221309801843': 271, '1256588901878': 272,
+  '1112417901888': 273, '1258852201820': 274, '861931001838':  277,
+  '861310101818':  278, '974795301895':  279, '1074055701810': 280,
+  '1216391101831': 281,
+
+  // UCs alfanuméricas (não-CEMIG) — formato bruto preservando letras
+  'C9007900096': 220,
+  '1159003922':  242,
+  'C9007945782': 255,
+  'W9010122783': 264,
+  // E também as versões só-dígitos (caso o normalizador remova letras)
+  '9007900096':  220,
+  '9007945782':  255,
+  '9010122783':  264,
+};
+
+// ====== MAPA REVERSO: LOJA → CNPJ canônico ======
+// Derivado automaticamente de CNPJ_TO_LOJA. Usado para sobrescrever o
+// cnpjCpfDest do XML quando a loja for resolvida via IE ou idAcesso e o
+// CNPJ original estiver "errado" (cadastro divergente na concessionária).
+const LOJA_TO_CNPJ = Object.fromEntries(
+  Object.entries(CNPJ_TO_LOJA).map(([cnpj, loja]) => [loja, cnpj])
+);
+
+/**
+ * Resolve o número da loja a partir dos dados do destinatário/UC do XML.
+ * Hierarquia (mais confiável → menos confiável):
+ *   1. UC (idAcesso) — prioridade máxima: identifica o ponto físico de medição
+ *      e vence mesmo quando a CEMIG cadastra CNPJ/IE divergentes.
+ *   2. Mapa IE  → Loja  (IE é única por filial)
+ *   3. Mapa CNPJ → Loja
+ *   4. Fórmula antiga (fallback p/ CNPJs não mapeados, ex: gás/outros)
+ *
+ * Lookup da UC: tenta a chave original primeiro (preserva letras p/ UCs
+ * não-CEMIG tipo 'C9007900096'), depois só-dígitos, depois só-dígitos sem
+ * zeros à esquerda (XMLs costumam vir com prefixo de zeros).
+ */
+function extrairLoja(cnpj, ie, idAcesso) {
+  const soDig = s => (s || '').toString().replace(/\D/g, '');
+  const ieD   = soDig(ie);
+  const cnpjD = soDig(cnpj);
+
+  // 1. UC (idAcesso) — múltiplas tentativas de normalização
+  if (idAcesso) {
+    const raw       = idAcesso.toString().trim().toUpperCase();
+    const digits    = soDig(idAcesso);
+    const noLeading = digits.replace(/^0+/, '');
+    if (IDACESSO_TO_LOJA[raw])        return IDACESSO_TO_LOJA[raw];
+    if (IDACESSO_TO_LOJA[digits])     return IDACESSO_TO_LOJA[digits];
+    if (IDACESSO_TO_LOJA[noLeading])  return IDACESSO_TO_LOJA[noLeading];
+  }
+
+  // 2. IE
+  if (ieD   && IE_TO_LOJA[ieD])        return IE_TO_LOJA[ieD];
+  // 3. CNPJ
+  if (cnpjD && CNPJ_TO_LOJA[cnpjD])    return CNPJ_TO_LOJA[cnpjD];
+
+  // 4. Fallback: fórmula antiga (CNPJs Mart Minas seguem padrão 2+slice(-4,-2))
+  if (cnpjD && cnpjD.length >= 4) return parseInt('2' + cnpjD.slice(-4, -2));
+  return null;
+}
 function readText(file) {
   return new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=e=>res(e.target.result); fr.onerror=()=>rej(); fr.readAsText(file,'UTF-8'); });
 }
