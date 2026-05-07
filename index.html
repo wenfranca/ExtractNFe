@@ -906,7 +906,10 @@ async function handleFiles(files) {
 
           qtdHP    += itemHP;
           qtdHFP   += itemHFP;
-          qtdTotal += qtdFat;
+          // Quantidade Total na NF3-e = apenas consumo de energia em kWh (HP + HFP).
+          // Não somar bandeira tarifária, fio em kW, reativos, ajustes em R$ etc.,
+          // pois unidades diferentes não devem ser misturadas e geram total inflado.
+          qtdTotal += (itemHP + itemHFP);
           dbItens.push({
             'Arquivo':       chave,
             'Modelo':        modelo,
