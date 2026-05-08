@@ -890,8 +890,18 @@ async function handleFiles(files) {
           const xProd    = xProdRaw.toUpperCase();
           const qtdFat   = parseFloat(gdN('qFaturada') || '0');
           const vUni     = parseFloat(gdN('vItem')  || '0');
-          const vPrd     = parseFloat(gdN('vProd')  || '0');
+          let   vPrd     = parseFloat(gdN('vProd')  || '0');
           const uMed     = gdN('uMed') || '';
+
+          // ── indDevolucao ──
+          // Quando indDevolucao=1, o item é estorno/desconto/devolução: o vProd
+          // vem positivo no XML mas deve ser SUBTRAÍDO do total. Inverte o sinal
+          // aqui para todos os campos derivados refletirem isso (V. Total Item,
+          // HP/HFP, Quantidade, V. Unitário). Sem isso, descontos como
+          // "Desconto Comp. Fio HFP" e "Valor de Autoprodução HFP" apareceriam
+          // como positivos, inflando indevidamente a soma dos itens.
+          const indDev = (gdN('indDevolucao') || '').trim() === '1';
+          if (indDev) vPrd = -vPrd;
 
           // Captura HFP/HP APENAS de itens de consumo de energia em kWh
           // ("Componente Encargo HFP" / "Componente Encargo HP", uMed=2 = kWh).
@@ -903,6 +913,8 @@ async function handleFiles(files) {
           let itemHP=0, itemHFP=0;
           if      (isEncargoHP)  itemHP  = qtdFat;
           else if (isEncargoHFP) itemHFP = qtdFat;
+          // Se for devolução de Encargo HP/HFP, subtrai do consumo (raro, mas possível)
+          if (indDev) { itemHP = -itemHP; itemHFP = -itemHFP; }
 
           qtdHP    += itemHP;
           qtdHFP   += itemHFP;
@@ -921,9 +933,9 @@ async function handleFiles(files) {
             'CFOP':          gdN('CFOP'),
             'HP':            itemHP   || null,
             'HFP':           itemHFP  || null,
-            'Quantidade':    qtdFat,
-            'V. Unitário':   vUni,
-            'V. Total Item': vPrd
+            'Quantidade':    indDev ? -qtdFat : qtdFat,
+            'V. Unitário':   indDev ? -vUni  : vUni,
+            'V. Total Item': vPrd  // já com sinal correto via indDevolucao
           });
         } else {
           // NF-e padrão
@@ -1282,10 +1294,14 @@ function renderItens() {
   tbody.innerHTML=rows.map((r,i)=>{
     const id = idNotaGas(r);
     const idEsc = String(id).replace(/'/g,"\\'");
-    const ehNFe = r['Modelo'] === 'NF-e';
-    const titulo = ehNFe ? 'Clique para visualizar a DANFE' : 'NF3-e não possui DANFE';
-    const cursor = ehNFe ? 'cursor:pointer;' : 'cursor:default;opacity:.7;';
-    return `<tr class="consinco-row" style="${cursor}" title="${titulo}" onclick="previewDanfeConsinco('${idEsc}')">
+    // Preview liberado para NF-e (modelo 55) e NF3-e (modelo 66).
+    // No caso de NF3-e o layout do PDF é o da NF-e mod 55 (algumas seções
+    // ficam vazias/sem sentido — transportador, fatura/duplicata —, mas o
+    // emitente, destinatário, itens, totais e chave aparecem corretamente).
+    const titulo = r['Modelo'] === 'NF3-e'
+      ? 'Clique para visualizar a DANFE (NF3-e — layout simplificado)'
+      : 'Clique para visualizar a DANFE';
+    return `<tr class="consinco-row" style="cursor:pointer;" title="${titulo}" onclick="previewDanfeConsinco('${idEsc}')">
       <td class="td-loja">${r['Loja']??'—'}</td>
       <td class="td-desc" title="${r['Nome Emitente']||''}">${trunc(r['Nome Emitente'],26)}</td>
       <td class="td-code">${r['Numero NF']??'—'}</td>
@@ -1539,15 +1555,17 @@ function renderDados() {
   tbody.innerHTML = rows.map(r => {
     const id = idNotaGas(r);
     const idEsc = String(id).replace(/'/g, "\\'");
-    // Energia (NF3-e) não tem DANFE — só gás (NF-e modelo 55) tem preview clicável
-    const ehNFe = r['Modelo'] === 'NF-e';
-    const titulo = ehNFe ? 'Clique para visualizar a DANFE' : 'NF3-e não possui DANFE';
-    const cursor = ehNFe ? 'cursor:pointer;' : 'cursor:default;';
+    // Preview liberado para NF-e (mod 55) e NF3-e (mod 66). NF3-e usa o
+    // mesmo layout da NF-e — algumas seções ficam vazias mas é melhor que
+    // não ter visualização nenhuma.
+    const titulo = r['Modelo'] === 'NF3-e'
+      ? 'Clique para visualizar a DANFE (NF3-e — layout simplificado)'
+      : 'Clique para visualizar a DANFE';
     // stopPropagation no botão X pra clique no ✕ não disparar o preview
     const btnX = `<td><button class="btn-excluir-gas" title="Excluir esta nota da visão" onclick="event.stopPropagation();excluirNotaGas('${idEsc}')" style="background:transparent;border:1px solid var(--rim2);color:var(--fog);width:22px;height:22px;border-radius:4px;cursor:pointer;font-size:12px;line-height:1;padding:0;transition:all .15s;" onmouseover="this.style.borderColor='var(--hot)';this.style.color='var(--hot)';" onmouseout="this.style.borderColor='var(--rim2)';this.style.color='var(--fog)';">✕</button></td>`;
-    const onClick = ehNFe ? `onclick="previewDanfeConsinco('${idEsc}')"` : '';
+    const onClick = `onclick="previewDanfeConsinco('${idEsc}')"`;
     if (ehEnergia) {
-      return `<tr class="dados-row" style="${cursor}" title="${titulo}" ${onClick}>${btnX}
+      return `<tr class="dados-row" style="cursor:pointer;" title="${titulo}" ${onClick}>${btnX}
         <td class="td-loja">${r['Loja']??'—'}</td>
         <td class="td-desc" title="${r['Nome Emitente']||''}">${trunc(r['Nome Emitente'],26)}</td>
         <td class="td-cnpj">${fmtCNPJ(r['CNPJ Emitente'])}</td>
@@ -1560,7 +1578,7 @@ function renderDados() {
         <td class="td-num">${fmtBRL(r['V. Total NF'])}</td>
       </tr>`;
     } else {
-      return `<tr class="dados-row" style="${cursor}" title="${titulo}" ${onClick}>${btnX}
+      return `<tr class="dados-row" style="cursor:pointer;" title="${titulo}" ${onClick}>${btnX}
         <td class="td-loja">${r['Loja']??'—'}</td>
         <td class="td-desc" title="${r['Nome Emitente']||''}">${trunc(r['Nome Emitente'],28)}</td>
         <td class="td-cnpj">${fmtCNPJ(r['CNPJ Emitente'])}</td>
@@ -3323,29 +3341,39 @@ function extrairDadosDanfe(xmlStr) {
     return v ? parseFloat(v) : 0;
   };
 
-  // chave de acesso
-  const infEl = findFirst('infNFe');
-  let chave = infEl ? (infEl.getAttribute('Id') || '').replace(/^NFe/i, '') : '';
-  if (!chave) chave = g('chNFe') || '';
-  // segurança: só dígitos
+  // ─── detecta modelo (NF-e 55 vs NF3-e 66) ───
+  // NF3-e tem tag raiz <NF3e> e <infNF3e>; NF-e tem <NFe>/<infNFe>.
+  const isNF3 = !!findFirst('infNF3e') || !!findFirst('NF3e');
+
+  // ─── chave de acesso ───
+  const infEl = findFirst('infNFe') || findFirst('infNF3e');
+  let chave = infEl ? (infEl.getAttribute('Id') || '').replace(/^NFe|^NF3e/i, '') : '';
+  if (!chave) chave = g('chNFe') || g('chNF3e') || '';
   chave = chave.replace(/\D/g, '');
 
-  // dados gerais
+  // ─── unidade NF3-e (numérica) → texto ───
+  // NF3-e usa códigos: 1=kW, 2=kWh, 3=Mvarh, 4=outras, 5=R$ (valor monetário)
+  const uMedNF3 = (n) => ({1:'kW', 2:'kWh', 3:'Mvarh', 4:'OUTR', 5:'R$'})[String(n).trim()] || String(n||'').trim() || 'UN';
+
+  // ─── dados gerais ───
   const ide = findFirst('ide');
   const dados = {
+    isNF3,
+    modelo: isNF3 ? 'NF3-e' : 'NF-e',
     chave: chave,
     numero: g('nNF', ide),
     serie: g('serie', ide),
-    dataEmissao: g('dhEmi', ide).substring(0, 10),
-    horaEmissao: g('dhEmi', ide).substring(11, 19),
-    natureza: g('natOp', ide),
-    tipoOp: g('tpNF', ide) === '1' ? 'SAÍDA' : 'ENTRADA',
-    finNFe: g('finNFe', ide), // 1=normal, 2=complementar, 3=ajuste, 4=devolução
+    dataEmissao: (g('dhEmi', ide) || '').substring(0, 10),
+    horaEmissao: (g('dhEmi', ide) || '').substring(11, 19),
+    natureza: g('natOp', ide) || (isNF3 ? 'FORNECIMENTO DE ENERGIA ELÉTRICA' : ''),
+    // NF3-e não tem tpNF (sempre saída)
+    tipoOp: isNF3 ? 'SAÍDA' : (g('tpNF', ide) === '1' ? 'SAÍDA' : 'ENTRADA'),
+    finNFe: g('finNFe', ide) || g('finNF3e', ide),
     protocolo: g('infProt > nProt') || '',
     dhProt: (g('infProt > dhRecbto') || '').substring(0, 19).replace('T', ' ')
   };
 
-  // emitente
+  // ─── emitente ───
   const emit = findFirst('emit');
   dados.emit = {
     cnpj: g('CNPJ', emit) || g('CPF', emit),
@@ -3361,7 +3389,7 @@ function extrairDadosDanfe(xmlStr) {
     fone: g('enderEmit > fone', doc)
   };
 
-  // destinatário
+  // ─── destinatário ───
   const dest = findFirst('dest');
   dados.dest = {
     cnpjCpf: g('CNPJ', dest) || g('CPF', dest),
@@ -3376,59 +3404,243 @@ function extrairDadosDanfe(xmlStr) {
     fone: g('enderDest > fone', doc)
   };
 
-  // itens
+  // ─── itens ───
+  // NF-e: <det> > <prod>, <imposto> direto.
+  // NF3-e: <det> > <detItem> > <prod>, <imposto>.
+  // Em ambos os casos, getElementsByTagName('det') retorna os elementos certos.
+  // A diferença está no caminho até <prod>.
   dados.itens = [];
   const dets = doc.getElementsByTagName('det');
   for (const det of dets) {
     const nItem = det.getAttribute('nItem') || '';
-    const prod = findFirst('prod', det);
-    const imposto = findFirst('imposto', det);
-    // ICMS pode vir em variantes ICMS00, ICMS10, etc.
-    // Pega o primeiro filho de <ICMS>
-    const icmsGroup = imposto ? findFirst('ICMS', imposto) : null;
-    const icmsEl = icmsGroup && icmsGroup.firstElementChild ? icmsGroup.firstElementChild : null;
+    // Em NF3-e tem um <detItem> intermediário; em NF-e o <prod> é filho direto
+    const wrapper = isNF3 ? (findFirst('detItem', det) || det) : det;
+    const prod = findFirst('prod', wrapper);
+    const imposto = findFirst('imposto', wrapper);
+    // ICMS pode vir em variantes ICMS00, ICMS10, ICMS40, etc.
+    // Diferença NF-e vs NF3-e:
+    //   NF-e:   <imposto><ICMS><ICMS00>...</ICMS00></ICMS></imposto>  (wrapper ICMS)
+    //   NF3-e:  <imposto><ICMS00>...</ICMS00></imposto>  (sem wrapper)
+    // Pra cobrir ambos: 1) tenta wrapper <ICMS>, 2) se não tiver, procura
+    // diretamente filhos de <imposto> com nome começando em "ICMS".
+    let icmsEl = null;
+    if (imposto) {
+      const icmsGroup = findFirst('ICMS', imposto);
+      if (icmsGroup && icmsGroup.firstElementChild) {
+        icmsEl = icmsGroup.firstElementChild;
+      } else {
+        // NF3-e: ICMS00/ICMS40/etc. é filho direto de <imposto>
+        for (const child of imposto.children) {
+          if (/^ICMS/i.test(child.localName)) { icmsEl = child; break; }
+        }
+      }
+    }
+
+    // ── indDevolucao: estorno/desconto entra com vProd negativo ──
+    const indDev = (g('indDevolucao', prod) || '').trim() === '1';
+
+    // Quantidade, V. Unitário, V. Total — campos diferem entre os modelos
+    let qtd, vUnit, vTotal;
+    if (isNF3) {
+      qtd   = gN('qFaturada', prod);
+      vUnit = gN('vItem', prod);
+      vTotal = gN('vProd', prod);
+    } else {
+      qtd   = gN('qCom', prod);
+      vUnit = gN('vUnCom', prod);
+      vTotal = gN('vProd', prod);
+    }
+    if (indDev) { qtd = -qtd; vUnit = -vUnit; vTotal = -vTotal; }
+
+    // ── PIS/COFINS por item (NF3-e) ──
+    // Na DANF3E da CEMIG a coluna "PIS/COFINS" é a soma de <vPIS> + <vCOFINS>
+    // (NÃO os valores "Efetivos" — vPISEfet/vCOFINSEfet são tributo nominal
+    // que já está embutido no preço). Quando indDevolucao=1 entram negativos.
+    let vPIS = 0, vCOFINS = 0;
+    if (imposto) {
+      vPIS    = gN('PIS > vPIS', imposto);
+      vCOFINS = gN('COFINS > vCOFINS', imposto);
+    }
+    if (indDev) { vPIS = -vPIS; vCOFINS = -vCOFINS; }
+    const pisCofins = vPIS + vCOFINS;
+
+    // ── Tarifa Homologada (vTarifHom) — só existe na NF3-e dentro de <gTarif> ──
+    const gTarif = isNF3 ? findFirst('gTarif', wrapper) : null;
+    const vTarifHom = gTarif ? gN('vTarifHom', gTarif) : 0;
+
+    // ── ICMS: também respeita indDevolucao ──
+    // Itens estornados (Autoprodução, Descontos) devem aparecer com BC, ICMS
+    // negativos pra refletir que estão SUBTRAINDO da base/imposto da fatura.
+    let baseICMS = icmsEl ? gN('vBC', icmsEl) : 0;
+    let vICMSItem = icmsEl ? gN('vICMS', icmsEl) : 0;
+    const alqICMS = icmsEl ? gN('pICMS', icmsEl) : 0;  // alíquota não tem sinal
+    if (indDev) { baseICMS = -baseICMS; vICMSItem = -vICMSItem; }
 
     dados.itens.push({
       nItem,
       codigo: g('cProd', prod),
-      ean: g('cEAN', prod),
+      ean: g('cEAN', prod) || '',
       descricao: g('xProd', prod),
-      ncm: g('NCM', prod),
-      cst: icmsEl ? g('CST', icmsEl) || g('CSOSN', icmsEl) : '',
+      ncm: g('NCM', prod) || g('cClass', prod), // NF3-e usa cClass
+      cst: icmsEl ? (g('CST', icmsEl) || g('CSOSN', icmsEl)) : '',
       cfop: g('CFOP', prod),
-      unid: g('uCom', prod),
-      qtd: gN('qCom', prod),
-      vUnit: gN('vUnCom', prod),
-      vTotal: gN('vProd', prod),
+      unid: isNF3 ? uMedNF3(g('uMed', prod)) : g('uCom', prod),
+      qtd,
+      vUnit,
+      vTotal,
       vDesconto: gN('vDesc', prod),
-      baseICMS: icmsEl ? gN('vBC', icmsEl) : 0,
-      vICMS: icmsEl ? gN('vICMS', icmsEl) : 0,
-      alqICMS: icmsEl ? gN('pICMS', icmsEl) : 0,
-      vIPI: gN('IPI > IPITrib > vIPI', det) || 0,
-      alqIPI: gN('IPI > IPITrib > pIPI', det) || 0
+      baseICMS,    // já com sinal correto (negativo se indDev)
+      vICMS: vICMSItem,  // idem
+      alqICMS,     // alíquota %, sem sinal
+      vIPI: gN('IPI > IPITrib > vIPI', wrapper) || 0,
+      alqIPI: gN('IPI > IPITrib > pIPI', wrapper) || 0,
+      // Específicos NF3-e (DANF3E)
+      pisCofins,         // soma vPIS + vCOFINS (sinal já tratado por indDevolucao)
+      vTarifHom,         // tarifa unitária homologada (vTarifHom de gTarif)
+      indDev             // pra detectar pares de estorno na hora de renderizar
     });
   }
 
-  // totais
+  // ── Pós-processamento: marca pares de estorno (NF3-e) ──
+  // Quando há um item com indDevolucao=1 que tem mesma descrição, mesma qtd
+  // (em valor absoluto) e mesmo vUnit (em valor absoluto) que outro item
+  // positivo, marcamos os dois como "ocultar" — eles se cancelam e a CEMIG
+  // não exibe na fatura oficial. O par mais comum é "Componente Fio HFP"
+  // 300kW × 22,81 = 6843 (positivo) + 300kW × 22,81 = -6843 (devolução).
+  if (isNF3 && dados.itens.length) {
+    for (const it of dados.itens) it._oculto = false;
+    for (let i = 0; i < dados.itens.length; i++) {
+      const a = dados.itens[i];
+      if (a._oculto || !a.indDev) continue;
+      // Procura o par positivo em qualquer outro item
+      for (let j = 0; j < dados.itens.length; j++) {
+        if (i === j) continue;
+        const b = dados.itens[j];
+        if (b._oculto || b.indDev) continue;
+        if (b.descricao === a.descricao
+            && Math.abs(Math.abs(b.qtd)   - Math.abs(a.qtd))   < 0.0001
+            && Math.abs(Math.abs(b.vUnit) - Math.abs(a.vUnit)) < 0.0001
+            && Math.abs(Math.abs(b.vTotal)- Math.abs(a.vTotal))< 0.01) {
+          a._oculto = true;
+          b._oculto = true;
+          break;
+        }
+      }
+    }
+
+    // ── Fallback de Tarifa Unit. ICMS para itens sem <gTarif> ──
+    // Alguns itens do XML não trazem o bloco <gTarif> (ex: nItem 9 Encargo HP).
+    // Mas a fatura oficial CEMIG exibe a mesma tarifa do "irmão" da mesma
+    // família (Componente Encargo HP herda de HFP — mesma tarifa por kWh).
+    // Mapeamento de famílias → mesmo grupo tarifário:
+    //   "Componente Encargo HFP" ↔ "Componente Encargo HP"  (kWh)
+    //   "Componente Fio HFP"     ↔ "Componente Fio HP"      (kW)
+    // Outros itens (Descontos, Ajustes, Contribuição) ficam sem tarifa mesmo.
+    const familias = [
+      ['Componente Encargo HFP', 'Componente Encargo HP'],
+      ['Componente Fio HFP',     'Componente Fio HP']
+    ];
+    for (const it of dados.itens) {
+      if (it.vTarifHom && it.vTarifHom !== 0) continue;
+      if (!it.descricao) continue;
+      // Busca um irmão na mesma família com tarifa preenchida
+      for (const fam of familias) {
+        if (!fam.includes(it.descricao)) continue;
+        const irmaos = fam.filter(d => d !== it.descricao);
+        for (const irmao of irmaos) {
+          const candidato = dados.itens.find(x => x.descricao === irmao && x.vTarifHom);
+          if (candidato) {
+            it.vTarifHom = candidato.vTarifHom;
+            break;
+          }
+        }
+        if (it.vTarifHom) break;
+      }
+    }
+  }
+
+  // ─── totais ───
+  // NF-e: total > ICMSTot > vNF
+  // NF3-e: total > vNF (direto, mas também tem ICMSTot dentro)
   const tot = findFirst('ICMSTot');
+  const totWrapper = findFirst('total');
+  // vNF na NF3-e está em <total> direto; na NF-e está em <ICMSTot>. Tenta os dois.
+  const vNFTot = isNF3 ? (gN('vNF', totWrapper) || gN('vNF', tot)) : gN('vNF', tot);
+  const vProdTot = isNF3 ? (gN('vProd', totWrapper) || gN('vProd', tot)) : gN('vProd', tot);
   dados.tot = {
     vBC:       gN('vBC', tot),
     vICMS:     gN('vICMS', tot),
     vBCST:     gN('vBCST', tot),
     vST:       gN('vST', tot),
-    vProd:     gN('vProd', tot),
+    vProd:     vProdTot,
     vFrete:    gN('vFrete', tot),
     vSeg:      gN('vSeg', tot),
     vDesc:     gN('vDesc', tot),
     vII:       gN('vII', tot),
     vIPI:      gN('vIPI', tot),
-    vPIS:      gN('vPIS', tot),
-    vCOFINS:   gN('vCOFINS', tot),
+    vPIS:      gN('vPIS', totWrapper) || gN('vPIS', tot),     // NF3-e pode ter no total
+    vCOFINS:   gN('vCOFINS', totWrapper) || gN('vCOFINS', tot),
     vOutro:    gN('vOutro', tot),
-    vNF:       gN('vNF', tot)
+    vNF:       vNFTot
   };
 
-  // transportador
+  // ── Tributos detalhados (NF3-e: bloco "Base de cálculo dos tributos") ──
+  // ICMS:  vBC e vICMS já vêm de <ICMSTot>. Alíquota = 18% (padrão CEMIG MG)
+  //        — pega da maioria dos itens (alqICMS != 0) caso varie.
+  // PIS/COFINS: somatório de vBC, vPIS, vCOFINS por item (respeitando indDev),
+  //        considerando apenas itens com vBC > 0 (descontos puros têm vBC=0
+  //        e não devem entrar). Alíquota = primeiro pPIS/pCOFINS != 0.
+  if (isNF3) {
+    let bcPIS = 0, vPISTrib = 0, aliqPIS = 0;
+    let bcCOFINS = 0, vCOFINSTrib = 0, aliqCOFINS = 0;
+    // Reabre os itens crus pra somar PIS/COFINS sem depender da estrutura simplificada
+    for (const itDet of dets) {
+      const detItemRaw = isNF3 ? findFirst('detItem', itDet) : itDet;
+      if (!detItemRaw) continue;
+      const prodRaw = findFirst('prod', detItemRaw);
+      const impRaw  = findFirst('imposto', detItemRaw);
+      if (!impRaw) continue;
+      const indDevRaw = (g('indDevolucao', prodRaw) || '').trim() === '1';
+      const sinal = indDevRaw ? -1 : 1;
+      // PIS
+      const pisEl = findFirst('PIS', impRaw);
+      if (pisEl) {
+        const bc = gN('vBC', pisEl);
+        const v  = gN('vPIS', pisEl);
+        const p  = gN('pPIS', pisEl);
+        if (bc > 0) {
+          bcPIS    += bc * sinal;
+          vPISTrib += v  * sinal;
+          if (p > 0 && !aliqPIS) aliqPIS = p;
+        }
+      }
+      // COFINS
+      const cofEl = findFirst('COFINS', impRaw);
+      if (cofEl) {
+        const bc = gN('vBC', cofEl);
+        const v  = gN('vCOFINS', cofEl);
+        const p  = gN('pCOFINS', cofEl);
+        if (bc > 0) {
+          bcCOFINS    += bc * sinal;
+          vCOFINSTrib += v  * sinal;
+          if (p > 0 && !aliqCOFINS) aliqCOFINS = p;
+        }
+      }
+    }
+    // Alíquota ICMS: primeira não-zero entre os itens (geralmente 18% pra CEMIG MG)
+    let aliqICMSTot = 0;
+    for (const it of dados.itens) {
+      if (it.alqICMS && it.alqICMS > 0) { aliqICMSTot = it.alqICMS; break; }
+    }
+    dados.tributos = {
+      icms:   { bc: dados.tot.vBC, aliq: aliqICMSTot, valor: dados.tot.vICMS },
+      pis:    { bc: bcPIS,         aliq: aliqPIS,    valor: vPISTrib },
+      cofins: { bc: bcCOFINS,      aliq: aliqCOFINS, valor: vCOFINSTrib }
+    };
+  }
+
+  // ─── transportador ───
+  // NF3-e não tem transportador (energia elétrica não é transportada por veículo).
   const transp = findFirst('transp');
   dados.transp = {
     modFrete: g('modFrete', transp),
@@ -3443,22 +3655,177 @@ function extrairDadosDanfe(xmlStr) {
     especie: g('vol > esp', transp) || ''
   };
 
-  // duplicatas (cobrança)
+  // ─── cobrança / duplicatas ───
+  // NF-e: <cobr><dup>...</dup></cobr> (várias duplicatas)
+  // NF3-e: <gFat> com uma única fatura: nFat, dVencFat, vTotDFe (ou usar vNF total)
   dados.dups = [];
-  const cobrEl = findFirst('cobr');
-  if (cobrEl) {
-    for (const dup of cobrEl.getElementsByTagName('dup')) {
-      dados.dups.push({
-        num: g('nDup', dup),
-        venc: g('dVenc', dup),
-        valor: gN('vDup', dup)
-      });
+  if (isNF3) {
+    const gFat = findFirst('gFat');
+    if (gFat) {
+      const nFat = g('nFat', gFat);
+      const dVenc = g('dVencFat', gFat);
+      if (nFat || dVenc) {
+        dados.dups.push({
+          num: nFat || '001',
+          venc: dVenc,
+          valor: dados.tot.vNF || 0
+        });
+      }
+    }
+  } else {
+    const cobrEl = findFirst('cobr');
+    if (cobrEl) {
+      for (const dup of cobrEl.getElementsByTagName('dup')) {
+        dados.dups.push({
+          num: g('nDup', dup),
+          venc: g('dVenc', dup),
+          valor: gN('vDup', dup)
+        });
+      }
     }
   }
 
-  // informações complementares
+  // ─── informações complementares ───
   dados.infCpl = g('infAdic > infCpl') || '';
   dados.infAdFisco = g('infAdic > infAdFisco') || '';
+
+  // ─── específicos da NF3-e: acessante (UC), bandeira, leituras ───
+  // Anexamos no campo infCpl pra aparecer no rodapé "Informações Complementares".
+  if (isNF3) {
+    const acess = findFirst('acessante');
+    const med   = findFirst('gMed');
+    const linhasExtras = [];
+
+    // ── Dados estruturados da UC (classe, grupo de tensão, modalidade, ligação) ──
+    // OBS sobre tpClasse/tpSubClasse: o manual ANEEL/SEFAZ define uma tabela,
+    // mas cada concessionária pode usar codificação interna própria. A CEMIG,
+    // por exemplo, exibe "Comercial (01) / Comercial (07)" para tpClasse=01,
+    // tpSubClasse=07 — diferente do que o manual padrão sugeriria.
+    // Pra evitar exibir descrições conflitantes com o que a fatura oficial
+    // mostra, deixamos sem tradução textual e exibimos apenas o código entre
+    // parênteses. Isso é seguro pra qualquer concessionária.
+    //
+    //   tpFase:      1=Monofásico, 2=Bifásico, 3=Trifásico (padrão SEFAZ)
+    //   tpGrpTensao: 01=A1(≥230kV), 02=A2(88-138kV), 03=A3(69kV), 04=A3a(30-44kV),
+    //                05=A4(2,3-25kV), 06=AS(Subterrâneo), 07=B1(Residencial),
+    //                08=B2(Rural), 09=B3(Demais), 10=B4(Iluminação Pública)
+    //   tpModTar:    01=Convencional B, 02=Branca, 03=Convencional A,
+    //                04=Horária Azul APE, 05=Horária Verde APE,
+    //                06=Horária Azul, 07=Horária Verde
+    const TP_FASE = {'1':'Monofásico','2':'Bifásico','3':'Trifásico'};
+    const TP_GRP_TENSAO = {
+      '01':'A1 - Alta Tensão (≥230 kV)','02':'A2 - Alta Tensão (88-138 kV)',
+      '03':'A3 - Alta Tensão (69 kV)','04':'A3a - Alta Tensão (30-44 kV)',
+      '05':'A4 - Alta Tensão (2,3-25 kV)','06':'AS - Subterrâneo',
+      '07':'B1 - Residencial','08':'B2 - Rural','09':'B3 - Demais Classes',
+      '10':'B4 - Iluminação Pública'
+    };
+    const TP_MOD_TAR = {
+      '01':'Convencional B','02':'Branca','03':'Convencional A',
+      '04':'Horária Azul APE','05':'Horária Verde APE',
+      '06':'Horária Azul','07':'Horária Verde'
+    };
+
+    if (acess) {
+      const tpClasse    = g('tpClasse', acess);
+      const tpSubClasse = g('tpSubClasse', acess);
+      const tpFase      = g('tpFase', acess);
+      const tpGrpTensao = g('tpGrpTensao', acess);
+      const tpModTar    = g('tpModTar', acess);
+
+      // Para classe/subclasse: sempre usamos "Comercial" como padrão pra CEMIG
+      // (que é o caso predominante no Mart Minas) e mostramos os códigos.
+      // Concessionárias diferentes podem ter outras descrições — se necessário,
+      // adicionar mapeamentos por CNPJ emitente no futuro.
+      const cnpjEmit = (dados.emit?.cnpj || '').replace(/\D/g, '');
+      const ehCEMIG = cnpjEmit === '06981180000116';
+      let classeTxt = '';
+      let subTxt = '';
+      if (ehCEMIG) {
+        classeTxt = 'Comercial';
+        subTxt = 'Comercial';
+      }
+
+      dados.uc = {
+        idAcesso: g('idAcesso', acess),
+        xNomeUC:  g('xNomeUC', acess),
+        classeSubclasse: tpClasse
+          ? `${classeTxt ? classeTxt + ' ' : ''}(${tpClasse})${tpSubClasse ? ' / ' + (subTxt ? subTxt + ' ' : '') + '(' + tpSubClasse + ')' : ''}`
+          : '',
+        grupoTensao: tpGrpTensao ? (TP_GRP_TENSAO[tpGrpTensao] || tpGrpTensao) : '',
+        modalidadeTarif: tpModTar
+          ? `${TP_MOD_TAR[tpModTar] || tpModTar} (${tpModTar})`
+          : '',
+        ligacao: tpFase ? TP_FASE[tpFase] : '',
+        bandeira: ''  // preenchida abaixo a partir do infCpl
+      };
+
+      // Mantém também as anotações textuais antigas pra compatibilidade
+      const idAcesso = dados.uc.idAcesso;
+      const xNomeUC  = dados.uc.xNomeUC;
+      if (xNomeUC || idAcesso) {
+        linhasExtras.push(`UC: ${xNomeUC || ''}${idAcesso ? '  (idAcesso: ' + idAcesso + ')' : ''}`);
+      }
+    } else {
+      dados.uc = {};
+    }
+
+    if (med) {
+      const idMed = g('idMedidor', med);
+      const dAnt  = g('dMedAnt', med);
+      const dAtu  = g('dMedAtu', med);
+      dados.uc.medidor   = idMed;
+      dados.uc.dataAnt   = dAnt;
+      dados.uc.dataAtu   = dAtu;
+      if (idMed || dAnt || dAtu) {
+        linhasExtras.push(`Medidor: ${idMed || ''}  Leitura: ${dAnt || ''} a ${dAtu || ''}`);
+      }
+    }
+
+    // ── Grandezas contratadas (gGrContrat) ──
+    // Cada <gGrContrat> tem:
+    //   tpGrContrat: 1=Energia, 2=Demanda
+    //   tpPosTar:    1=Ponta, 2=Fora Ponta
+    //   qUnidContrat: quantidade contratada (kW pra demanda, kWh pra energia)
+    // Também pode aparecer tpUnidContrat (não usado aqui — kW é o padrão pra demanda)
+    dados.grandezas = [];
+    const grContrats = doc.getElementsByTagName('gGrContrat');
+    const TP_GR = { '1': 'Energia', '2': 'Demanda' };
+    const TP_POS = { '1': 'Ponta', '2': 'Fora Ponta' };
+    for (const gr of grContrats) {
+      const tpGr  = g('tpGrContrat', gr);
+      const tpPos = g('tpPosTar', gr);
+      const qtd   = gN('qUnidContrat', gr);
+      const tipo  = TP_GR[tpGr]  || 'Grandeza';
+      const pos   = TP_POS[tpPos] || '';
+      dados.grandezas.push({
+        descricao: pos ? `${tipo} ${pos}` : tipo,
+        tipo,         // "Energia" | "Demanda"
+        posTar: pos,  // "Ponta" | "Fora Ponta"
+        valor: qtd,
+        unidade: tpGr === '2' ? 'kW' : 'kWh'
+      });
+    }
+    // competência de faturamento e bandeira tarifária
+    const compFat = g('gFat > CompetFat');
+    if (compFat) {
+      dados.uc.competencia = compFat;
+      linhasExtras.push(`Competência: ${compFat}`);
+    }
+
+    // Bandeira tarifária: extrai do infCpl original ("Bandeira tarifária ABR/26 : Band. Verde")
+    const infOrig = g('infAdic > infCpl') || '';
+    const bandMatch = infOrig.match(/Band(?:eira)?\s+(?:tarif[áa]ria[^:]*:)?\s*Band\.?\s*([A-Za-zÀ-ú]+)/i)
+                   || infOrig.match(/Bandeira[^:]*:\s*Band\.?\s*([A-Za-zÀ-ú]+)/i)
+                   || infOrig.match(/Band\.\s*(Verde|Amarela|Vermelha[^a-zà-ú]*\d*)/i);
+    if (bandMatch) {
+      dados.uc.bandeira = bandMatch[1].trim();
+    }
+
+    if (linhasExtras.length) {
+      dados.infCpl = linhasExtras.join('  ·  ') + (dados.infCpl ? '\n' + dados.infCpl : '');
+    }
+  }
 
   return dados;
 }
@@ -3544,6 +3911,886 @@ function fmtDataDanfe(d) {
     return `${dd}/${m}/${y}`;
   }
   return d;
+}
+
+// ─── ROUTER: escolhe o layout certo conforme o modelo da nota ───
+// NF-e modelo 55 → layout SEFAZ tradicional (desenharDanfe)
+// NF3-e modelo 66 → layout DANF3E da fatura de energia (desenharDanf3e)
+function desenharDanfeAuto(pdf, d) {
+  if (d && d.isNF3) return desenharDanf3e(pdf, d);
+  return desenharDanfe(pdf, d);
+}
+
+// ═══════════════════════════════════════════════════════════
+// DANF3E — Documento Auxiliar da Nota Fiscal de Energia Elétrica (mod. 66)
+// ═══════════════════════════════════════════════════════════
+// Layout fiel ao modelo da CEMIG fornecido pelo usuário:
+//   - Cabeçalho de 3 colunas: emitente | título "FATURA/CONTA" | DANF3E + Nº/Série/Modelo
+//   - Faixa de pagamento: REFERENTE A | VENCIMENTO | VALOR A PAGAR
+//   - DESTINATÁRIO / CLIENTE
+//   - UNIDADE CONSUMIDORA (UC + classe/grupo/modalidade/ligação/bandeira)
+//   - MEDIÇÃO E LEITURAS (tabela)
+//   - DESCRIÇÃO DOS ITENS DE FATURAMENTO (tabela com unidade NF3-e: 1=kW, 2=kWh, 5=R$)
+//   - CÁLCULO DO IMPOSTO + Resumo de consumo (HP, HFP, Total)
+//   - CHAVE DE ACESSO + protocolo
+//   - INFORMAÇÕES COMPLEMENTARES
+//   - Marca d'água "Sistema interno" diagonal e rodapé identificador
+function desenharDanf3e(pdf, d) {
+  // A4 retrato: 210 × 297 mm
+  const M = 5;
+  const W = 210 - 2 * M; // 200mm úteis
+  const PAGE_H = 297;
+  let y = M;
+
+  // Helpers de desenho
+  const rect = (x, yy, w, h) => pdf.rect(x, yy, w, h);
+  const line = (x1, y1, x2, y2) => pdf.line(x1, y1, x2, y2);
+  const fillRect = (x, yy, w, h, fill) => {
+    const [r,g,b] = fill || [240, 240, 240];
+    pdf.setFillColor(r, g, b);
+    pdf.rect(x, yy, w, h, 'F');
+  };
+  const txt = (s, x, yy, opts) => pdf.text(String(s == null ? '' : s), x, yy, opts);
+
+  // Tamanhos de fonte
+  const FZ = {
+    title:    14,   // "DANF3E", "ABR/2026", valores grandes
+    big:      11,   // "385514106" (Nº NF), valor a pagar
+    medium:   9,    // dados em destaque
+    label:    6.5,  // labels pequenos cinza
+    valor:    8.5,  // valores normais
+    small:    7.5,  // textos densos
+    secao:    8,    // barras de seção (texto branco)
+    tabHdr:   7,    // cabeçalhos de tabela
+    tabRow:   7.5,  // linhas de tabela
+    info:     6.8,  // info complementar
+    rodape:   7,    // rodapé do PDF
+  };
+
+  // Cores
+  const BARRA_CINZA  = [40, 40, 40];     // barras de seção pretas (texto branco)
+  const FUNDO_CINZA  = [240, 240, 240];  // fundo cinza claro de cabeçalhos
+  const LINHA_GRADE  = [180, 180, 180];
+
+  pdf.setLineWidth(0.2);
+  pdf.setDrawColor(0);
+
+  // Helpers de formatação
+  const nBR  = n => isNaN(n) || n == null ? '0,00' : Number(n).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const nBR4 = n => isNaN(n) || n == null ? '0,000000' : Number(n).toLocaleString('pt-BR', { minimumFractionDigits: 6, maximumFractionDigits: 6 });
+  const nINT = n => isNaN(n) || n == null ? '0' : Math.round(Number(n)).toLocaleString('pt-BR');
+  const fmtData = s => {
+    if (!s) return '—';
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+      const [y,m,dd] = s.substring(0,10).split('-');
+      return `${dd}/${m}/${y}`;
+    }
+    return s;
+  };
+  const fmtCnpjCpf = v => {
+    if (!v) return '';
+    const s = String(v).replace(/\D/g, '');
+    if (s.length === 14) return s.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5');
+    if (s.length === 11) return s.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+    return v;
+  };
+  const fmtCep = v => {
+    if (!v) return '';
+    const s = String(v).replace(/\D/g, '');
+    return s.length === 8 ? s.replace(/(\d{5})(\d{3})/, '$1-$2') : v;
+  };
+  const fmtChaveSpaced = c => {
+    const s = String(c || '').replace(/\D/g, '');
+    return s.replace(/(\d{4})(?=\d)/g, '$1 ');
+  };
+  // Trunca string respeitando largura disponível em mm
+  const fitText = (s, maxW, fontSize) => {
+    pdf.setFontSize(fontSize);
+    let txtV = String(s == null ? '' : s);
+    if (pdf.getTextWidth(txtV) <= maxW) return txtV;
+    while (txtV.length > 1 && pdf.getTextWidth(txtV + '…') > maxW) txtV = txtV.slice(0, -1);
+    return txtV + '…';
+  };
+
+  // ── Helper: barra de seção (cinza escuro, texto branco centralizado) ──
+  const barraSecao = (texto, x, yy, w, altura) => {
+    const h = altura || 4.5;
+    fillRect(x, yy, w, h, BARRA_CINZA);
+    pdf.setFontSize(FZ.secao);
+    pdf.setFont('helvetica', 'bold');
+    pdf.setTextColor(255);
+    txt(texto, x + w / 2, yy + h - 1.3, { align: 'center' });
+    pdf.setTextColor(0);
+    pdf.setFont('helvetica', 'normal');
+    return h;
+  };
+  // Label pequeno (cinza)
+  const label = (s, x, yy, align) => {
+    pdf.setFontSize(FZ.label);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setTextColor(100);
+    txt(s, x, yy, align ? { align } : undefined);
+    pdf.setTextColor(0);
+  };
+  // Valor em negrito
+  const valorBold = (s, x, yy, sz, align) => {
+    pdf.setFontSize(sz || FZ.medium);
+    pdf.setFont('helvetica', 'bold');
+    pdf.setTextColor(0);
+    txt(s, x, yy, align ? { align } : undefined);
+    pdf.setFont('helvetica', 'normal');
+  };
+  const valorNorm = (s, x, yy, sz, align) => {
+    pdf.setFontSize(sz || FZ.valor);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setTextColor(0);
+    txt(s, x, yy, align ? { align } : undefined);
+  };
+
+  // ════════════ MARCA D'ÁGUA "Sistema interno" ════════════
+  // 3 posições diagonais cobrindo a página
+  try {
+    const gs = pdf.GState && pdf.GState({ opacity: 0.10 });
+    if (gs) pdf.setGState(gs);
+  } catch (_) {}
+  pdf.setTextColor(120, 120, 120);
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(28);
+  pdf.text('Sistema interno', 105, 90,  { align: 'center', angle: -55 });
+  pdf.text('Sistema interno', 105, 170, { align: 'center', angle: -55 });
+  pdf.text('Sistema interno', 105, 250, { align: 'center', angle: -55 });
+  try {
+    const gsFull = pdf.GState && pdf.GState({ opacity: 1 });
+    if (gsFull) pdf.setGState(gsFull);
+  } catch (_) {}
+  pdf.setTextColor(0);
+  pdf.setFont('helvetica', 'normal');
+
+  // ════════════ CABEÇALHO (3 colunas) ════════════
+  // Esquerda (90): Emitente CEMIG
+  // Meio (60): "FATURA / CONTA DE ENERGIA ELÉTRICA" centrado
+  // Direita (50): "DANF3E" + Nº/SÉRIE/MODELO
+  const hCab = 26;
+  const wColE = 90;
+  const wColM = 60;
+  const wColD = W - wColE - wColM;
+
+  rect(M, y, wColE, hCab);
+  rect(M + wColE, y, wColM, hCab);
+  rect(M + wColE + wColM, y, wColD, hCab);
+
+  // ── Esquerda: Emitente ──
+  pdf.setFontSize(FZ.big);
+  pdf.setFont('helvetica', 'bold');
+  pdf.setTextColor(0);
+  txt(d.emit?.nome || '', M + 2, y + 5);
+  pdf.setFont('helvetica', 'normal');
+
+  // Helper interno: imprime texto reduzindo fonte se necessário
+  const txtFit = (texto, x, yPos, larguraMax, fzInicial) => {
+    let fz = fzInicial || FZ.valor;
+    pdf.setFontSize(fz);
+    while (fz > 6.5 && pdf.getTextWidth(texto) > larguraMax) {
+      fz -= 0.3;
+      pdf.setFontSize(fz);
+    }
+    let texto2 = texto;
+    if (pdf.getTextWidth(texto2) > larguraMax) {
+      while (texto2.length > 1 && pdf.getTextWidth(texto2 + '…') > larguraMax) {
+        texto2 = texto2.slice(0, -1);
+      }
+      texto2 = texto2 + '…';
+    }
+    txt(texto2, x, yPos);
+    pdf.setFontSize(FZ.valor); // reset
+  };
+
+  // Endereço (linha 1)
+  txtFit(d.emit?.endereco || '', M + 2, y + 10, wColE - 4);
+  // Bairro - Município/UF - CEP (linha 2)
+  const linhaCidade = [
+    d.emit?.bairro || '',
+    [d.emit?.municipio, d.emit?.uf].filter(Boolean).join('/'),
+    d.emit?.cep ? `CEP: ${fmtCep(d.emit.cep)}` : ''
+  ].filter(Boolean).join(' - ');
+  txtFit(linhaCidade, M + 2, y + 14, wColE - 4);
+  // CNPJ + IE (linha 3)
+  const linhaCnpj = [
+    d.emit?.cnpj ? `CNPJ: ${fmtCnpjCpf(d.emit.cnpj)}` : '',
+    d.emit?.ie   ? `IE: ${d.emit.ie}` : ''
+  ].filter(Boolean).join('   ');
+  txtFit(linhaCnpj, M + 2, y + 18, wColE - 4);
+
+  // ── Meio: Título ──
+  pdf.setFontSize(FZ.small);
+  pdf.setFont('helvetica', 'italic');
+  pdf.setTextColor(60);
+  txt('FATURA / CONTA DE ENERGIA ELÉTRICA', M + wColE + wColM / 2, y + hCab / 2 + 1, { align: 'center' });
+  pdf.setFont('helvetica', 'normal');
+  pdf.setTextColor(0);
+
+  // ── Direita: DANF3E + Nº/SÉRIE/MODELO ──
+  const xColD = M + wColE + wColM;
+  pdf.setFontSize(FZ.title);
+  pdf.setFont('helvetica', 'bold');
+  txt('DANF3E', xColD + wColD / 2, y + 5.5, { align: 'center' });
+  pdf.setFont('helvetica', 'normal');
+  pdf.setFontSize(FZ.label + 0.5);
+  pdf.setTextColor(80);
+  txt('Documento Auxiliar da Nota Fiscal de', xColD + wColD / 2, y + 9, { align: 'center' });
+  txt('Energia Elétrica Eletrônica',          xColD + wColD / 2, y + 11.5, { align: 'center' });
+  pdf.setTextColor(0);
+
+  // sub-bloco com Nº / SÉRIE / MODELO (faixa cinza clara)
+  // Layout (linhas):
+  //   ySub+0 ............... topo do sub-bloco
+  //   ySub+2.5 ............. labels (fonte pequena, cinza)
+  //   ySub+8 ............... valores grandes (Nº, série, modelo)
+  //   ySub+11 .............. "Tipo: NORMAL" (rodapé do sub-bloco)
+  // Aumentei a altura do sub-bloco em 2mm pra dar respiro visual
+  // entre os valores grandes e o rótulo de tipo.
+  const ySub = y + 13;
+  const hSub = hCab - 13;
+  fillRect(xColD, ySub, wColD, hSub, FUNDO_CINZA);
+  rect(xColD, ySub, wColD, hSub);
+  // 3 colunas internas
+  const subW = wColD / 3;
+  line(xColD + subW,     ySub, xColD + subW,     ySub + hSub);
+  line(xColD + subW * 2, ySub, xColD + subW * 2, ySub + hSub);
+  // Labels
+  label('Nº',     xColD + subW/2,         ySub + 2.5, 'center');
+  label('SÉRIE',  xColD + subW + subW/2,  ySub + 2.5, 'center');
+  label('MODELO', xColD + subW * 2 + subW/2, ySub + 2.5, 'center');
+  // Valores grandes em fonte média (não FZ.title que é 14 e bate na linha de baixo)
+  // Usamos FZ.medium (11) que cabe confortavelmente entre o label e a linha de "Tipo"
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(FZ.medium);
+  txt(d.numero || '',  xColD + subW/2,         ySub + 8, { align: 'center' });
+  txt(d.serie || '0',  xColD + subW + subW/2,  ySub + 8, { align: 'center' });
+  txt('66',            xColD + subW * 2 + subW/2, ySub + 8, { align: 'center' });
+  pdf.setFont('helvetica', 'normal');
+  pdf.setFontSize(FZ.label);
+  pdf.setTextColor(80);
+  // "Tipo: NORMAL" centralizado horizontalmente, no fundo do sub-bloco
+  txt('Tipo: NORMAL', xColD + wColD/2, ySub + hSub - 1.2, { align: 'center' });
+  pdf.setTextColor(0);
+
+  y += hCab;
+
+  // ════════════ FAIXA DE PAGAMENTO: REFERENTE A | VENCIMENTO | VALOR A PAGAR ════════════
+  const hFaixa = 18;
+  const wFx1 = 60, wFx2 = 60, wFx3 = W - wFx1 - wFx2;
+  rect(M, y, wFx1, hFaixa);
+  rect(M + wFx1, y, wFx2, hFaixa);
+  // Caixa de "VALOR A PAGAR" com fundo cinza claro pra destacar
+  fillRect(M + wFx1 + wFx2, y, wFx3, hFaixa, [248, 248, 248]);
+  rect(M + wFx1 + wFx2, y, wFx3, hFaixa);
+
+  // Labels
+  label('REFERENTE A',         M + 2, y + 4);
+  label('VENCIMENTO',          M + wFx1 + 2, y + 4);
+  label('VALOR A PAGAR (R$)',  M + wFx1 + wFx2 + 2, y + 4);
+
+  // Valores grandes
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(FZ.title + 2);
+  // Competência: pega do XML (CompetFat 202604 → ABR/2026)
+  let competencia = '—';
+  const compMatch = (d.infCpl || '').match(/Compet[êe]ncia:\s*(\d{6})/i);
+  if (compMatch) {
+    const yyyy = compMatch[1].substring(0,4);
+    const mm = parseInt(compMatch[1].substring(4,6),10);
+    const meses = ['JAN','FEV','MAR','ABR','MAI','JUN','JUL','AGO','SET','OUT','NOV','DEZ'];
+    competencia = `${meses[mm-1] || mm}/${yyyy}`;
+  }
+  txt(competencia, M + 2, y + 11);
+
+  // Vencimento (data dd/mm/yyyy do gFat > dVencFat)
+  const venc = d.dups && d.dups[0] ? fmtData(d.dups[0].venc) : '—';
+  txt(venc, M + wFx1 + 2, y + 11);
+
+  // Valor a pagar
+  pdf.setFontSize(FZ.title + 4);
+  txt('R$ ' + nBR(d.tot.vNF), M + wFx1 + wFx2 + wFx3 - 2, y + 11.5, { align: 'right' });
+
+  // Período (sob "REFERENTE A")
+  pdf.setFont('helvetica', 'normal');
+  pdf.setFontSize(FZ.label);
+  pdf.setTextColor(80);
+  // Período de leitura: pega do infCpl que enriquecemos com "Leitura: dAnt a dAtu"
+  const leituraMatch = (d.infCpl || '').match(/Leitura:\s*([\d-]+)\s*a\s*([\d-]+)/);
+  const periodoTxt = leituraMatch
+    ? `Período: ${fmtData(leituraMatch[1])} a ${fmtData(leituraMatch[2])}`
+    : '';
+  if (periodoTxt) txt(periodoTxt, M + 2, y + 16);
+  pdf.setTextColor(0);
+
+  y += hFaixa;
+
+  // ════════════ DESTINATÁRIO / CLIENTE ════════════
+  y += barraSecao('DESTINATÁRIO / CLIENTE', M, y, W);
+
+  const hDest = 14;
+  rect(M, y, W, hDest);
+  // Linha 1: Nome (esquerda, 130mm) | CNPJ (direita, 70mm)
+  const wDestE = 130;
+  line(M + wDestE, y, M + wDestE, y + hDest);
+  // Sub-linha horizontal a 7mm pra separar Nome/Endereço
+  line(M, y + 7, M + wDestE, y + 7);
+  // Sub-linha vertical na coluna direita pra separar CNPJ/IE
+  line(M + wDestE, y + 7, M + W, y + 7);
+
+  label('NOME / RAZÃO SOCIAL', M + 2, y + 2.5);
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(FZ.medium);
+  txt(fitText(d.dest?.nome || '', wDestE - 4, FZ.medium), M + 2, y + 6);
+  pdf.setFont('helvetica', 'normal');
+  label('ENDEREÇO', M + 2, y + 9.5);
+  const enderDest = [
+    d.dest?.endereco || '',
+    d.dest?.bairro || '',
+    [d.dest?.municipio, d.dest?.uf].filter(Boolean).join('/'),
+    d.dest?.cep ? `CEP: ${fmtCep(d.dest.cep)}` : ''
+  ].filter(Boolean).join(' - ');
+  // Auto-shrink: reduz fonte até caber (preserva o CEP até o fim)
+  let fzEnd = FZ.valor;
+  pdf.setFontSize(fzEnd);
+  while (fzEnd > 6.5 && pdf.getTextWidth(enderDest) > wDestE - 4) {
+    fzEnd -= 0.3;
+    pdf.setFontSize(fzEnd);
+  }
+  let endTxt = enderDest;
+  if (pdf.getTextWidth(endTxt) > wDestE - 4) {
+    while (endTxt.length > 1 && pdf.getTextWidth(endTxt + '…') > wDestE - 4) {
+      endTxt = endTxt.slice(0, -1);
+    }
+    endTxt = endTxt + '…';
+  }
+  txt(endTxt, M + 2, y + 12.5);
+  pdf.setFontSize(FZ.valor);
+
+  // Coluna direita: CNPJ + IE
+  label('CNPJ/CPF', M + wDestE + 2, y + 2.5);
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(FZ.medium);
+  txt(fmtCnpjCpf(d.dest?.cnpjCpf), M + wDestE + 2, y + 6);
+  pdf.setFont('helvetica', 'normal');
+  label('INSCRIÇÃO ESTADUAL', M + wDestE + 2, y + 9.5);
+  pdf.setFontSize(FZ.valor);
+  txt(d.dest?.ie || '—', M + wDestE + 2, y + 12.5);
+
+  y += hDest;
+
+  // ════════════ UNIDADE CONSUMIDORA ════════════
+  y += barraSecao('UNIDADE CONSUMIDORA', M, y, W);
+
+  // Linha 1: Nº UC | MEDIDOR Nº | endereço da UC
+  const hUc1 = 9;
+  rect(M, y, W, hUc1);
+  const wUcE = 70;   // Nº UC
+  const wUcM = 50;   // MEDIDOR Nº
+  line(M + wUcE, y, M + wUcE, y + hUc1);
+  line(M + wUcE + wUcM, y, M + wUcE + wUcM, y + hUc1);
+
+  // Pega idAcesso do infCpl que enriquecemos
+  const idAcessoMatch = (d.infCpl || '').match(/idAcesso:\s*([^\)]+)\)/);
+  const idAcesso = idAcessoMatch ? idAcessoMatch[1].trim() : '';
+  // Pega xNomeUC
+  const ucNomeMatch = (d.infCpl || '').match(/UC:\s*([^(]+)/);
+  const ucNome = ucNomeMatch ? ucNomeMatch[1].trim() : '';
+
+  label('Nº DA UNIDADE CONSUMIDORA', M + 2, y + 3);
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(FZ.medium);
+  txt(idAcesso || '—', M + 2, y + 7.5);
+  pdf.setFont('helvetica', 'normal');
+
+  // Coluna do meio: MEDIDOR Nº (com período de leitura abaixo, em fonte menor)
+  label('MEDIDOR Nº', M + wUcE + 2, y + 3);
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(FZ.medium);
+  txt(d.uc?.medidor || '—', M + wUcE + 2, y + 7.5);
+  pdf.setFont('helvetica', 'normal');
+
+  label('ENDEREÇO DA UC / LOCAL DE FORNECIMENTO', M + wUcE + wUcM + 2, y + 3);
+  pdf.setFontSize(FZ.valor);
+  txt(ucNome || '—', M + wUcE + wUcM + 2, y + 7.5);
+  y += hUc1;
+
+  // Linha 2: 5 colunas (Classe | Grupo Tensão | Modalidade | Ligação | Bandeira)
+  const hUc2 = 9;
+  rect(M, y, W, hUc2);
+  const wU = W / 5;
+  for (let i = 1; i < 5; i++) line(M + wU * i, y, M + wU * i, y + hUc2);
+
+  const labels2 = ['CLASSE / SUBCLASSE', 'GRUPO DE TENSÃO', 'MODALIDADE TARIFÁRIA', 'LIGAÇÃO', 'BANDEIRA'];
+  // Valores: por enquanto inferimos do XML. Como o parseador atual não extrai esses campos,
+  // tentamos puxar de strings no infCpl (caso enriquecido) ou marcamos "—".
+  // Para mostrar dados reais aqui, o ideal seria estender extrairDadosDanfe. Faremos isso a seguir.
+  const valoresUc = [
+    d.uc?.classeSubclasse || '—',
+    d.uc?.grupoTensao || '—',
+    d.uc?.modalidadeTarif || '—',
+    d.uc?.ligacao || '—',
+    d.uc?.bandeira || '—'
+  ];
+  for (let i = 0; i < 5; i++) {
+    label(labels2[i], M + wU * i + wU/2, y + 3, 'center');
+    // Auto-shrink: tenta com FZ.valor (8.5), reduz até 6.5 se não couber
+    const valor = valoresUc[i];
+    let fzVal = FZ.valor;
+    pdf.setFontSize(fzVal);
+    while (fzVal > 6.5 && pdf.getTextWidth(valor) > wU - 3) {
+      fzVal -= 0.3;
+      pdf.setFontSize(fzVal);
+    }
+    // Se mesmo no menor tamanho não couber, trunca com elipse
+    let textoExib = valor;
+    if (pdf.getTextWidth(textoExib) > wU - 3) {
+      while (textoExib.length > 1 && pdf.getTextWidth(textoExib + '…') > wU - 3) {
+        textoExib = textoExib.slice(0, -1);
+      }
+      textoExib = textoExib + '…';
+    }
+    txt(textoExib, M + wU * i + wU/2, y + 7, { align: 'center' });
+  }
+  y += hUc2;
+
+  // ════════════ GRANDEZAS CONTRATADAS ════════════
+  y += barraSecao('GRANDEZAS CONTRATADAS', M, y, W);
+
+  // 2 colunas: GRANDEZA | VALOR
+  // O Medidor Nº agora está no bloco UNIDADE CONSUMIDORA (acima).
+  const hGrHdr = 5;
+  fillRect(M, y, W, hGrHdr, FUNDO_CINZA);
+  rect(M, y, W, hGrHdr);
+  const colsGr = [0.75, 0.25]; // GRANDEZA (75%) | VALOR (25%)
+  pdf.setFontSize(FZ.tabHdr);
+  pdf.setFont('helvetica', 'bold');
+  const lblsGr = ['GRANDEZA', 'VALOR (kW)'];
+  let xi = M;
+  for (let i = 0; i < colsGr.length; i++) {
+    const cw = W * colsGr[i];
+    if (i > 0) line(xi, y, xi, y + hGrHdr);
+    txt(lblsGr[i], xi + cw/2, y + 3.5, { align: 'center' });
+    xi += cw;
+  }
+  pdf.setFont('helvetica', 'normal');
+  y += hGrHdr;
+
+  // Linhas de dados — uma por grandeza contratada
+  const grandezas = (d.grandezas && d.grandezas.length)
+    ? d.grandezas
+    : [{ descricao: '—', valor: null, unidade: '' }];
+
+  const hGrRow = 6;
+  pdf.setFontSize(FZ.tabRow);
+  for (const gr of grandezas) {
+    rect(M, y, W, hGrRow);
+    // Divisória vertical entre GRANDEZA e VALOR
+    line(M + W * colsGr[0], y, M + W * colsGr[0], y + hGrRow);
+    // Coluna GRANDEZA — texto à esquerda com pequena margem
+    txt(gr.descricao || '—', M + 2, y + 4);
+    // Coluna VALOR — centralizado, com 2 decimais
+    const xVal = M + W * colsGr[0] + W * colsGr[1] / 2;
+    const valTxt = (gr.valor != null && !isNaN(gr.valor))
+      ? Number(gr.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      : '—';
+    txt(valTxt, xVal, y + 4, { align: 'center' });
+    y += hGrRow;
+  }
+
+
+  // ════════════ DESCRIÇÃO DOS ITENS DE FATURAMENTO ════════════
+  y += barraSecao('DESCRIÇÃO DOS ITENS DE FATURAMENTO', M, y, W);
+
+  // Cabeçalho da tabela — layout fiel à fatura oficial CEMIG (10 colunas):
+  //   Itens da Fatura | Unid. | Quant. | Preço Unit. (R$) | Valor (R$) |
+  //   PIS/COFINS | Base Calc. ICMS | Aliq. ICMS | ICMS | Tarifa Unit. ICMS
+  const hItHdr = 7;  // mais alto pra acomodar texto em duas linhas
+  fillRect(M, y, W, hItHdr, FUNDO_CINZA);
+  rect(M, y, W, hItHdr);
+  const colsIt = [
+    { lbl: 'Itens da Fatura',   w: 0.21, align: 'left'   },
+    { lbl: 'Unid.',             w: 0.04, align: 'center' },
+    { lbl: 'Quant.',            w: 0.10, align: 'right'  },
+    { lbl: 'Preço Unit. (R$)',  w: 0.11, align: 'right'  },
+    { lbl: 'Valor (R$)',        w: 0.10, align: 'right'  },
+    { lbl: 'PIS/COFINS',        w: 0.08, align: 'right'  },
+    { lbl: 'Base Calc. ICMS',   w: 0.10, align: 'right'  },
+    { lbl: 'Aliq. ICMS',        w: 0.06, align: 'right'  },
+    { lbl: 'ICMS',              w: 0.09, align: 'right'  },
+    { lbl: 'Tarifa Unit. ICMS', w: 0.11, align: 'right'  },
+  ];
+  // soma exata (caso a soma não bata 1.00)
+  const somaCols = colsIt.reduce((s,c)=>s+c.w, 0);
+  colsIt.forEach(c => c.w = c.w / somaCols);
+
+  // Renderiza cabeçalho — labels podem ser multilinha
+  pdf.setFontSize(FZ.tabHdr);
+  pdf.setFont('helvetica', 'bold');
+  xi = M;
+  for (const c of colsIt) {
+    const cw = W * c.w;
+    if (xi !== M) line(xi, y, xi, y + hItHdr);
+    // Quebra label em até 2 linhas pra caber em colunas estreitas
+    const linhasLbl = pdf.splitTextToSize(c.lbl, cw - 1);
+    const yLbl = linhasLbl.length > 1 ? y + 2.7 : y + 4.3;
+    txt(linhasLbl.slice(0, 2).join('\n'), xi + cw/2, yLbl, { align: 'center' });
+    xi += cw;
+  }
+  pdf.setFont('helvetica', 'normal');
+  y += hItHdr;
+
+  // ── Helpers de formatação fiéis à fatura oficial ──
+  // Quantidade: inteira se for inteiro, senão até 6 decimais
+  const fmtQuant = n => {
+    if (n == null || n === '' || isNaN(n)) return '';
+    const num = Number(n);
+    if (Math.abs(num - Math.round(num)) < 0.0000001) {
+      // É inteiro (positivo ou negativo)
+      return num.toLocaleString('pt-BR');
+    }
+    return num.toLocaleString('pt-BR', { minimumFractionDigits: 6, maximumFractionDigits: 6 });
+  };
+  // Preço unitário: 8 decimais como na fatura oficial
+  const fmtPreco8 = n => {
+    if (n == null || n === '' || isNaN(n)) return '';
+    return Number(n).toLocaleString('pt-BR', { minimumFractionDigits: 8, maximumFractionDigits: 8 });
+  };
+
+  // Linhas de itens — pula os marcados como ocultos (par estorno)
+  const itensExibir = (d.itens || []).filter(it => !it._oculto);
+
+  const hItRow = 4.5;
+  pdf.setFontSize(FZ.tabRow);
+
+  // Acumuladores pra linha TOTAL
+  let totalValor = 0, totalPisCof = 0, totalBaseICMS = 0, totalICMS = 0;
+
+  for (const it of itensExibir) {
+    if (y + hItRow > PAGE_H - 60) break; // proteção de overflow
+    rect(M, y, W, hItRow);
+    xi = M;
+
+    // Itens "monetários puros" (uMed=5 / unid='R$') escondem Unid/Qtd/Preço
+    // — só aparecem com o Valor e impostos. Exceção: "Valor de Autoprodução"
+    // que mostra Quant. e Preço (zerado) se vierem do XML.
+    const ehMonetario = it.unid === 'R$';
+    const ehAutoprod = /AUTOPRODU[ÇC][ÃA]O/i.test(it.descricao || '');
+
+    for (let i = 0; i < colsIt.length; i++) {
+      const c = colsIt[i];
+      const cw = W * c.w;
+      if (xi !== M) line(xi, y, xi, y + hItRow);
+      let val = '';
+      switch (c.lbl) {
+        case 'Itens da Fatura':
+          val = it.descricao || '';
+          break;
+        case 'Unid.':
+          // Itens R$ não exibem unidade (com exceção de Autoprodução, que oficial mostra vazio também)
+          val = ehMonetario ? '' : (it.unid || '');
+          break;
+        case 'Quant.':
+          // Itens monetários puros (Ajuste/Contrib/Descontos) não exibem qtd.
+          // Autoprodução: o XML traz qtd=1 mas a fatura oficial mostra 21.917
+          // (cálculo interno da CEMIG não disponível no XML). Se o XML der qtd != 1
+          // confiável, usamos; senão deixa em branco pra não confundir.
+          if (ehMonetario && !ehAutoprod) {
+            val = '';
+          } else if (ehAutoprod) {
+            // Pra Autoprodução, só mostra quantidade se ela for diferente de ±1
+            // (o ±1 é só placeholder do XML, não é a quantidade real)
+            const absQ = Math.abs(it.qtd || 0);
+            val = (absQ > 1.0001) ? fmtQuant(it.qtd) : '';
+          } else {
+            val = fmtQuant(it.qtd);
+          }
+          break;
+        case 'Preço Unit. (R$)':
+          if (ehMonetario && !ehAutoprod) {
+            val = '';
+          } else {
+            // Autoprodução: oficial mostra "0,00000000" se vUnit ~= 0; senão valor real
+            val = fmtPreco8(it.vUnit);
+          }
+          break;
+        case 'Valor (R$)':
+          val = nBR(it.vTotal);
+          break;
+        case 'PIS/COFINS':
+          val = (it.pisCofins != null && it.pisCofins !== 0) ? nBR(it.pisCofins) : '';
+          break;
+        case 'Base Calc. ICMS':
+          val = (it.baseICMS != null && it.baseICMS !== 0) ? nBR(it.baseICMS) : '';
+          break;
+        case 'Aliq. ICMS':
+          val = (it.alqICMS != null && it.alqICMS !== 0)
+            ? Number(it.alqICMS).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+            : '';
+          break;
+        case 'ICMS':
+          val = (it.vICMS != null && it.vICMS !== 0) ? nBR(it.vICMS) : '';
+          break;
+        case 'Tarifa Unit. ICMS':
+          val = (it.vTarifHom != null && it.vTarifHom !== 0) ? fmtPreco8(it.vTarifHom) : '';
+          break;
+        default: val = '';
+      }
+      const xPos = c.align === 'right'  ? xi + cw - 1.5
+                 : c.align === 'center' ? xi + cw/2
+                 : xi + 1.5;
+      // Auto-shrink: se o texto não couber na coluna, reduz fonte
+      let fzCell = FZ.tabRow;
+      pdf.setFontSize(fzCell);
+      while (fzCell > 5.5 && pdf.getTextWidth(val) > cw - 2) {
+        fzCell -= 0.3;
+        pdf.setFontSize(fzCell);
+      }
+      // Se mesmo no menor tamanho não couber, trunca com elipse
+      let textoExib = val;
+      if (pdf.getTextWidth(textoExib) > cw - 2) {
+        while (textoExib.length > 1 && pdf.getTextWidth(textoExib + '…') > cw - 2) {
+          textoExib = textoExib.slice(0, -1);
+        }
+        textoExib = textoExib + '…';
+      }
+      txt(textoExib, xPos, y + 3.2, c.align !== 'left' ? { align: c.align } : undefined);
+      pdf.setFontSize(FZ.tabRow); // reset
+      xi += cw;
+    }
+
+    // Acumula nos totais (só itens visíveis)
+    totalValor    += Number(it.vTotal)    || 0;
+    totalPisCof   += Number(it.pisCofins) || 0;
+    totalBaseICMS += Number(it.baseICMS)  || 0;
+    totalICMS     += Number(it.vICMS)     || 0;
+
+    y += hItRow;
+  }
+
+  // ── Linha TOTAL (rodapé da tabela) ──
+  // Mostra "TOTAL" na coluna Itens da Fatura e os totais somados nas
+  // colunas Valor, PIS/COFINS, Base ICMS e ICMS. As outras ficam vazias.
+  if (itensExibir.length) {
+    if (y + hItRow > PAGE_H - 60) {
+      // sem espaço pra TOTAL — pula. Caso raro com muitos itens.
+    } else {
+      fillRect(M, y, W, hItRow, FUNDO_CINZA);
+      rect(M, y, W, hItRow);
+      xi = M;
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(FZ.tabRow);
+      for (let i = 0; i < colsIt.length; i++) {
+        const c = colsIt[i];
+        const cw = W * c.w;
+        if (xi !== M) line(xi, y, xi, y + hItRow);
+        let val = '';
+        switch (c.lbl) {
+          case 'Itens da Fatura': val = 'TOTAL'; break;
+          case 'Valor (R$)':      val = nBR(totalValor); break;
+          case 'PIS/COFINS':      val = nBR(totalPisCof); break;
+          case 'Base Calc. ICMS': val = nBR(totalBaseICMS); break;
+          case 'ICMS':            val = nBR(totalICMS); break;
+          default: val = '';
+        }
+        const xPos = c.align === 'right'  ? xi + cw - 1.5
+                   : c.align === 'center' ? xi + cw/2
+                   : xi + 1.5;
+        // Auto-shrink dos totais também
+        let fzCell = FZ.tabRow;
+        pdf.setFontSize(fzCell);
+        while (fzCell > 5.5 && pdf.getTextWidth(val) > cw - 2) {
+          fzCell -= 0.3;
+          pdf.setFontSize(fzCell);
+        }
+        txt(val, xPos, y + 3.2, c.align !== 'left' ? { align: c.align } : undefined);
+        pdf.setFontSize(FZ.tabRow);
+        xi += cw;
+      }
+      pdf.setFont('helvetica', 'normal');
+      y += hItRow;
+    }
+  }
+
+  // ════════════ CÁLCULO DO IMPOSTO + RESUMO DE CONSUMO ════════════
+  y += barraSecao('CÁLCULO DO IMPOSTO', M, y, W);
+
+  // Linha 1: BC ICMS | ICMS | PIS | COFINS | TOTAL ITENS | TOTAL DA NOTA
+  const hImp = 11;
+  rect(M, y, W, hImp);
+  const wImp = W / 6;
+  for (let i = 1; i < 6; i++) line(M + wImp*i, y, M + wImp*i, y + hImp);
+
+  const lbls1 = ['BASE DE CÁLC. ICMS','VALOR DO ICMS','VALOR PIS','VALOR COFINS','VALOR TOTAL ITENS','VALOR TOTAL DA NOTA'];
+  // PIS, COFINS e Total Itens são exibidos como 0,00 no DANF3E padrão da CEMIG —
+  // o motivo é que esses tributos já estão embutidos no valor de cada item; o
+  // somatório aqui aparece zerado pra não duplicar visualmente. O Total da Nota
+  // sempre vem do <vNF> do XML.
+  const vals1 = [d.tot.vBC, d.tot.vICMS, 0, 0, 0, d.tot.vNF];
+  for (let i = 0; i < 6; i++) {
+    label(lbls1[i], M + wImp*i + wImp/2, y + 3, 'center');
+    if (i === 5) {
+      // Total da nota: destaque (negrito + maior)
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(FZ.medium);
+    } else {
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(FZ.valor);
+    }
+    txt(nBR(vals1[i]), M + wImp*i + wImp/2, y + 8.5, { align: 'center' });
+  }
+  pdf.setFont('helvetica', 'normal');
+  y += hImp;
+
+  // ════════════ BASE DE CÁLCULO DOS TRIBUTOS (NF3-e) ════════════
+  // Bloco com 3 linhas (ICMS, PASEP, COFINS) e 4 colunas:
+  //   Tributo | Base de cálculo (R$) | Alíquota (%) | Valor (R$)
+  // Só desenha se houver dados.tributos extraídos (NF3-e).
+  if (d.tributos) {
+    y += barraSecao('BASE DE CÁLCULO DOS TRIBUTOS', M, y, W);
+
+    // Cabeçalho — 4 colunas
+    const hTribHdr = 5.5;
+    fillRect(M, y, W, hTribHdr, FUNDO_CINZA);
+    rect(M, y, W, hTribHdr);
+    const colsTrib = [
+      { lbl: 'Tributo',                 w: 0.20, align: 'left'  },
+      { lbl: 'Base de cálculo (R$)',    w: 0.30, align: 'right' },
+      { lbl: 'Alíquota (%)',            w: 0.20, align: 'right' },
+      { lbl: 'Valor (R$)',              w: 0.30, align: 'right' },
+    ];
+    pdf.setFontSize(FZ.tabHdr);
+    pdf.setFont('helvetica', 'bold');
+    let xt = M;
+    for (const c of colsTrib) {
+      const cw = W * c.w;
+      if (xt !== M) line(xt, y, xt, y + hTribHdr);
+      txt(c.lbl, xt + cw/2, y + 3.7, { align: 'center' });
+      xt += cw;
+    }
+    pdf.setFont('helvetica', 'normal');
+    y += hTribHdr;
+
+    // Linhas de dados — uma por tributo
+    // Convenção CEMIG: usa "PASEP" em vez de "PIS" (mesmo tributo, nomenclatura
+    // tradicional da contribuição ao Programa de Formação do Patrimônio do Servidor Público).
+    const linhasTrib = [
+      { nome: 'ICMS',   ...d.tributos.icms   },
+      { nome: 'PASEP',  ...d.tributos.pis    },
+      { nome: 'COFINS', ...d.tributos.cofins },
+    ];
+
+    const hTribRow = 5.5;
+    pdf.setFontSize(FZ.tabRow);
+    for (const t of linhasTrib) {
+      rect(M, y, W, hTribRow);
+      let xtr = M;
+      for (let i = 0; i < colsTrib.length; i++) {
+        const c = colsTrib[i];
+        const cw = W * c.w;
+        if (xtr !== M) line(xtr, y, xtr, y + hTribRow);
+        let val = '';
+        switch (i) {
+          case 0: val = t.nome; break;
+          case 1: val = nBR(t.bc); break;
+          case 2: val = (t.aliq || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); break;
+          case 3: val = nBR(t.valor); break;
+        }
+        const xPos = c.align === 'right' ? xtr + cw - 2 : xtr + 2;
+        txt(val, xPos, y + 3.7, c.align === 'right' ? { align: 'right' } : undefined);
+        xtr += cw;
+      }
+      y += hTribRow;
+    }
+  }
+
+  // Linha 2: CONSUMO HP | CONSUMO HFP | CONSUMO TOTAL | BANDEIRA
+  // Calcula HP e HFP a partir dos itens de Encargo HP/HFP em kWh (uMed=2)
+  let consHP = 0, consHFP = 0;
+  for (const it of (d.itens || [])) {
+    const desc = (it.descricao || '').toUpperCase();
+    if (it.unid !== 'kWh') continue;
+    if (/COMPONENTE\s+ENCARGO\s+HP\b/.test(desc))  consHP  += Number(it.qtd) || 0;
+    if (/COMPONENTE\s+ENCARGO\s+HFP\b/.test(desc)) consHFP += Number(it.qtd) || 0;
+  }
+  const consTot = consHP + consHFP;
+
+  const hCons = 11;
+  rect(M, y, W, hCons);
+  const wC = [W * 0.20, W * 0.20, W * 0.30, W - (W * 0.20 + W * 0.20 + W * 0.30)];
+  let xc = M;
+  for (let i = 1; i < 4; i++) { xc += wC[i-1]; line(xc, y, xc, y + hCons); }
+
+  const consLabels = ['CONSUMO HP (kWh)','CONSUMO HFP (kWh)','CONSUMO TOTAL (kWh)','BANDEIRA'];
+  const consValores = [nINT(consHP), nINT(consHFP), nINT(consTot), d.uc?.bandeira || '—'];
+  xc = M;
+  for (let i = 0; i < 4; i++) {
+    label(consLabels[i], xc + wC[i]/2, y + 3, 'center');
+    if (i === 2) {
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(FZ.medium);
+    } else {
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(FZ.valor);
+    }
+    txt(consValores[i], xc + wC[i]/2, y + 8.5, { align: 'center' });
+    xc += wC[i];
+  }
+  pdf.setFont('helvetica', 'normal');
+  y += hCons;
+
+  // ════════════ CHAVE DE ACESSO DA NF3-e ════════════
+  y += barraSecao('CHAVE DE ACESSO DA NF3-e', M, y, W);
+
+  const hChave = 10;
+  rect(M, y, W, hChave);
+  // Chave formatada (4 em 4)
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(FZ.medium);
+  pdf.setTextColor(0);
+  txt(fmtChaveSpaced(d.chave), M + W/2, y + 5, { align: 'center' });
+  // Protocolo
+  pdf.setFont('helvetica', 'normal');
+  pdf.setFontSize(FZ.label + 0.5);
+  pdf.setTextColor(80);
+  const protTxt = `Protocolo de autorização: ${d.protocolo || '—'}${d.dhProt ? '   ' + d.dhProt : ''}`;
+  txt(protTxt, M + W/2, y + 8.5, { align: 'center' });
+  pdf.setTextColor(0);
+  y += hChave;
+
+  // ════════════ INFORMAÇÕES COMPLEMENTARES ════════════
+  y += barraSecao('INFORMAÇÕES COMPLEMENTARES', M, y, W);
+
+  // ocupa o que sobrar até ~12mm do fim da página (rodapé)
+  const hInfo = PAGE_H - M - y - 8;
+  rect(M, y, W, hInfo);
+
+  // Limpa o infCpl removendo as anotações que adicionamos (UC, Medidor, Competência)
+  // — esse texto é usado pra preencher os campos lá em cima, aqui mostramos só o original.
+  let infText = String(d.infCpl || '');
+  infText = infText.replace(/^UC:.*?·\s*Competência:\s*\d{6}\s*\n?/s, '').trim();
+
+  pdf.setFontSize(FZ.info);
+  pdf.setFont('helvetica', 'normal');
+  pdf.setTextColor(40);
+  // splitTextToSize quebra em múltiplas linhas pra caber na largura
+  const linhas = pdf.splitTextToSize(infText, W - 4);
+  // Calcula quantas linhas cabem
+  const altLinha = 2.7;
+  const maxLinhas = Math.max(1, Math.floor((hInfo - 3) / altLinha));
+  txt(linhas.slice(0, maxLinhas).join('\n'), M + 2, y + 3.5);
+  pdf.setTextColor(0);
+
+  // ════════════ RODAPÉ ════════════
+  pdf.setFontSize(FZ.rodape);
+  pdf.setFont('helvetica', 'italic');
+  pdf.setTextColor(120);
+  txt('Reprodução do DANF3E gerada a partir do XML — Sistema interno · Desenvolvido por Wendell França',
+      M + W/2, PAGE_H - 3, { align: 'center' });
+  pdf.setTextColor(0);
+  pdf.setFont('helvetica', 'normal');
 }
 
 // Desenha UMA DANFE na página atual do jsPDF, seguindo layout oficial da SEFAZ
@@ -4235,13 +5482,13 @@ async function gerarDanfesFiltradas() {
   const q = (document.getElementById('search-dados')?.value || '').toLowerCase();
   if (q) notas = notas.filter(r => Object.values(r).some(v => String(v).toLowerCase().includes(q)));
 
-  // Filtra só NF-e modelo 55 (DANFE NF3-e não está implementada)
-  const notasNFe = notas.filter(r => r['Modelo'] === 'NF-e');
+  // Filtra só NF-e (mod 55) e NF3-e (mod 66) — outros modelos (NFC-e, MDF-e, etc.) ficam de fora
+  const notasNFe = notas.filter(r => r['Modelo'] === 'NF-e' || r['Modelo'] === 'NF3-e');
   const ignoradas = notas.length - notasNFe.length;
 
   if (!notasNFe.length) {
     const msg = ignoradas
-      ? `Nenhuma NF-e modelo 55 disponível. ${ignoradas} nota(s) NF3-e foram ignoradas (DANFE de energia não suportada).`
+      ? `Nenhuma NF-e/NF3-e disponível. ${ignoradas} nota(s) de outros modelos foram ignoradas.`
       : 'Nenhuma nota filtrada para gerar DANFE.';
     setStatus(msg, 'err');
     return;
@@ -4264,7 +5511,7 @@ async function gerarDanfesFiltradas() {
       primeira = false;
       try {
         const dados = extrairDadosDanfe(nota.xmlRaw);
-        desenharDanfe(pdf, dados);
+        desenharDanfeAuto(pdf, dados);
         geradas++;
       } catch (e) {
         console.warn(`Erro na nota ${nota['Numero NF']}:`, e.message);
@@ -4283,7 +5530,7 @@ async function gerarDanfesFiltradas() {
 
     let msg = `${geradas} DANFE(s) gerada(s) em ${nomeArq}`;
     if (errosGer)  msg += ` · ${errosGer} erro(s)`;
-    if (ignoradas) msg += ` · ${ignoradas} NF3-e ignorada(s)`;
+    if (ignoradas) msg += ` · ${ignoradas} de outros modelos ignorada(s)`;
     setStatus(msg, 'ok');
   } catch (err) {
     console.error(err);
@@ -4320,13 +5567,13 @@ async function gerarDanfesConsinco() {
   const qLower = q.toLowerCase();
   let notas = dbNF.filter(r => Object.values(r).some(v => String(v).toLowerCase().includes(qLower)));
 
-  // DANFE só pra NF-e modelo 55 (NF3-e de energia não é suportada)
-  const notasNFe = notas.filter(r => r['Modelo'] === 'NF-e');
+  // DANFE para NF-e (mod 55) e NF3-e (mod 66). Outros modelos (NFC-e, MDF-e) ficam de fora.
+  const notasNFe = notas.filter(r => r['Modelo'] === 'NF-e' || r['Modelo'] === 'NF3-e');
   const ignoradas = notas.length - notasNFe.length;
 
   if (!notasNFe.length) {
     const msg = ignoradas
-      ? `Nenhuma NF-e modelo 55 no filtro "${q}". ${ignoradas} NF3-e ignorada(s) (DANFE de energia não suportada).`
+      ? `Nenhuma NF-e/NF3-e no filtro "${q}". ${ignoradas} de outros modelos ignorada(s).`
       : `Nenhuma nota encontrada com o filtro "${q}".`;
     setStatus(msg, 'err');
     return;
@@ -4357,7 +5604,7 @@ async function gerarDanfesConsinco() {
       primeira = false;
       try {
         const dados = extrairDadosDanfe(nota.xmlRaw);
-        desenharDanfe(pdf, dados);
+        desenharDanfeAuto(pdf, dados);
         geradas++;
       } catch (e) {
         console.warn(`Erro na nota ${nota['Numero NF']}:`, e.message);
@@ -4377,7 +5624,7 @@ async function gerarDanfesConsinco() {
 
     let msg = `${geradas} DANFE(s) gerada(s) em ${nomeArq}`;
     if (errosGer)  msg += ` · ${errosGer} erro(s)`;
-    if (ignoradas) msg += ` · ${ignoradas} NF3-e ignorada(s)`;
+    if (ignoradas) msg += ` · ${ignoradas} de outros modelos ignorada(s)`;
     setStatus(msg, 'ok');
   } catch (err) {
     console.error(err);
@@ -4401,9 +5648,9 @@ function previewDanfeConsinco(idNota) {
   const nota = dbNF.find(r => idNotaGas(r) === idNota);
   if (!nota) { setStatus('Nota não encontrada.', 'err'); return; }
 
-  // Só NF-e modelo 55 gera DANFE
-  if (nota['Modelo'] !== 'NF-e') {
-    setStatus('DANFE só disponível para NF-e modelo 55 (esta é ' + (nota['Modelo'] || 'desconhecido') + ').', 'err');
+  // Aceita NF-e (mod 55) e NF3-e (mod 66). Outros modelos (NFC-e, MDF-e, etc.) ficam de fora.
+  if (nota['Modelo'] !== 'NF-e' && nota['Modelo'] !== 'NF3-e') {
+    setStatus('DANFE só disponível para NF-e e NF3-e (esta é ' + (nota['Modelo'] || 'desconhecido') + ').', 'err');
     return;
   }
 
@@ -4441,7 +5688,7 @@ function previewDanfeConsinco(idNota) {
       const { jsPDF } = window.jspdf;
       const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
       const dados = extrairDadosDanfe(nota.xmlRaw);
-      desenharDanfe(pdf, dados);
+      desenharDanfeAuto(pdf, dados);
 
       const blob = pdf.output('blob');
       const url  = URL.createObjectURL(blob);
