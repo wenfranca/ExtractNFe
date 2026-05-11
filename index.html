@@ -1056,8 +1056,7 @@ const IE_TO_LOJA = {
 // O XML costuma trazer a UC prefixada com zeros (ex: '001216391101831');
 // o lookup remove esses zeros antes de consultar o mapa.
 //
-// Lojas sem UC cadastrada: 276, 283, 284, 285, 286, 287, 288, 289, 290 —
-// caem no fallback IE/CNPJ.
+// Lojas sem UC cadastrada: 276, 290 — caem no fallback IE/CNPJ.
 //
 // UCs alfanuméricas (não-CEMIG): 220, 242, 255, 264.
 const IDACESSO_TO_LOJA = {
@@ -1085,7 +1084,10 @@ const IDACESSO_TO_LOJA = {
   '786138801853':  269, '1221309801843': 271, '1256588901878': 272,
   '1112417901888': 273, '1258852201820': 274, '861931001838':  277,
   '861310101818':  278, '974795301895':  279, '1074055701810': 280,
-  '1216391101831': 281, '702175901804':  285, '952381901888':  288,
+  '1216391101831': 281,
+  // Novas filiais (283-289) — cadastro atualizado
+  '794032201890':  283, '1012482101819': 284, '702175901804':  285,
+  '702880101891':  286, '752831201824':  287, '952381901888':  288,
   '1058071801853': 289,
 
   // UCs alfanuméricas (não-CEMIG) — formato bruto preservando letras
@@ -3793,15 +3795,16 @@ function extrairDadosDanfe(xmlStr) {
     }
 
     // ── Grandezas contratadas (gGrContrat) ──
-    // Cada <gGrContrat> tem:
-    //   tpGrContrat: 1=Energia, 2=Demanda
-    //   tpPosTar:    1=Ponta, 2=Fora Ponta
-    //   qUnidContrat: quantidade contratada (kW pra demanda, kWh pra energia)
-    // Também pode aparecer tpUnidContrat (não usado aqui — kW é o padrão pra demanda)
     dados.grandezas = [];
     const grContrats = doc.getElementsByTagName('gGrContrat');
-    const TP_GR = { '1': 'Energia', '2': 'Demanda' };
-    const TP_POS = { '1': 'Ponta', '2': 'Fora Ponta' };
+    // Convenção CEMIG (NF3-e): tpGrContrat=2 é rotulado como "Demanda" no PDF oficial,
+    // embora o leiaute MOC 1.00a chame de "Montante de Uso do SD". Hard-coded pra Demanda
+    // porque as faturas de energia desse sistema são todas da CEMIG.
+    //   tpPosTar:    0=Único,   1=Ponta,                 2=Fora Ponta
+    const TP_GR  = { '1': 'Demanda', '2': 'Demanda', '3': 'Reserva de Capacidade', '4': 'Energia Contratada' };
+    const TP_POS = { '0': '',        '1': 'Ponta',           '2': 'Fora Ponta' };
+    // Unidade: Demanda/Reserva → kW; Energia Contratada → kWh
+    const UN_GR  = { '1': 'kW', '2': 'kW', '3': 'kW', '4': 'kWh' };
     for (const gr of grContrats) {
       const tpGr  = g('tpGrContrat', gr);
       const tpPos = g('tpPosTar', gr);
@@ -3810,10 +3813,10 @@ function extrairDadosDanfe(xmlStr) {
       const pos   = TP_POS[tpPos] || '';
       dados.grandezas.push({
         descricao: pos ? `${tipo} ${pos}` : tipo,
-        tipo,         // "Energia" | "Demanda"
-        posTar: pos,  // "Ponta" | "Fora Ponta"
+        tipo,                       // "Demanda" | "Montante de Uso" | etc.
+        posTar: pos,                // "" | "Ponta" | "Fora Ponta"
         valor: qtd,
-        unidade: tpGr === '2' ? 'kW' : 'kWh'
+        unidade: UN_GR[tpGr] || 'kW'
       });
     }
     // competência de faturamento e bandeira tarifária
@@ -4058,9 +4061,10 @@ function desenharDanf3e(pdf, d) {
   };
 
   // ════════════ MARCA D'ÁGUA "Sistema interno" ════════════
-  // 3 posições diagonais cobrindo a página
+  // 3 posições diagonais cobrindo a página. Opacidade 0.15 (igual à DANFE) —
+  // o valor anterior (0.10) ficava invisível na impressão em algumas impressoras.
   try {
-    const gs = pdf.GState && pdf.GState({ opacity: 0.10 });
+    const gs = pdf.GState && pdf.GState({ opacity: 0.15 });
     if (gs) pdf.setGState(gs);
   } catch (_) {}
   pdf.setTextColor(120, 120, 120);
@@ -4370,14 +4374,15 @@ function desenharDanf3e(pdf, d) {
   y += barraSecao('GRANDEZAS CONTRATADAS', M, y, W);
 
   // 2 colunas: GRANDEZA | VALOR
-  // O Medidor Nº agora está no bloco UNIDADE CONSUMIDORA (acima).
+  // A unidade (kW pra Demanda/Montante/Reserva, kWh pra Energia) aparece junto do valor,
+  // porque pode variar de linha pra linha.
   const hGrHdr = 5;
   fillRect(M, y, W, hGrHdr, FUNDO_CINZA);
   rect(M, y, W, hGrHdr);
-  const colsGr = [0.75, 0.25]; // GRANDEZA (75%) | VALOR (25%)
+  const colsGr = [0.70, 0.30]; // GRANDEZA (70%) | VALOR (30%)
   pdf.setFontSize(FZ.tabHdr);
   pdf.setFont('helvetica', 'bold');
-  const lblsGr = ['GRANDEZA', 'VALOR (kW)'];
+  const lblsGr = ['GRANDEZA', 'VALOR'];
   let xi = M;
   for (let i = 0; i < colsGr.length; i++) {
     const cw = W * colsGr[i];
@@ -4393,6 +4398,16 @@ function desenharDanf3e(pdf, d) {
     ? d.grandezas
     : [{ descricao: '—', valor: null, unidade: '' }];
 
+  // Formata o valor: inteiro quando não tem casa decimal; com até 2 casas quando tem fração.
+  // Evita "30,00" virar "30" quando o XML manda mesmo com casas — aqui o critério é a fração ser zero.
+  const fmtGr = (v) => {
+    if (v == null || isNaN(v)) return '—';
+    const n = Number(v);
+    return Number.isInteger(n)
+      ? n.toLocaleString('pt-BR')
+      : n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+
   const hGrRow = 6;
   pdf.setFontSize(FZ.tabRow);
   for (const gr of grandezas) {
@@ -4401,11 +4416,10 @@ function desenharDanf3e(pdf, d) {
     line(M + W * colsGr[0], y, M + W * colsGr[0], y + hGrRow);
     // Coluna GRANDEZA — texto à esquerda com pequena margem
     txt(gr.descricao || '—', M + 2, y + 4);
-    // Coluna VALOR — centralizado, com 2 decimais
+    // Coluna VALOR — centralizado, formato adaptativo + unidade
     const xVal = M + W * colsGr[0] + W * colsGr[1] / 2;
-    const valTxt = (gr.valor != null && !isNaN(gr.valor))
-      ? Number(gr.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-      : '—';
+    const numTxt = fmtGr(gr.valor);
+    const valTxt = (gr.unidade && numTxt !== '—') ? `${numTxt} ${gr.unidade}` : numTxt;
     txt(valTxt, xVal, y + 4, { align: 'center' });
     y += hGrRow;
   }
@@ -4624,99 +4638,70 @@ function desenharDanf3e(pdf, d) {
     }
   }
 
-  // ════════════ CÁLCULO DO IMPOSTO + RESUMO DE CONSUMO ════════════
+  // ════════════ CÁLCULO DO IMPOSTO ════════════
+  // Tabela com 3 linhas (ICMS, PASEP, COFINS) e 4 colunas:
+  //   Tributo | Base de cálculo (R$) | Alíquota (%) | Valor (R$)
+  // Layout idêntico à fatura oficial CEMIG (NF3-e).
   y += barraSecao('CÁLCULO DO IMPOSTO', M, y, W);
 
-  // Linha 1: BC ICMS | ICMS | PIS | COFINS | TOTAL ITENS | TOTAL DA NOTA
-  const hImp = 11;
-  rect(M, y, W, hImp);
-  const wImp = W / 6;
-  for (let i = 1; i < 6; i++) line(M + wImp*i, y, M + wImp*i, y + hImp);
-
-  const lbls1 = ['BASE DE CÁLC. ICMS','VALOR DO ICMS','VALOR PIS','VALOR COFINS','VALOR TOTAL ITENS','VALOR TOTAL DA NOTA'];
-  // PIS, COFINS e Total Itens são exibidos como 0,00 no DANF3E padrão da CEMIG —
-  // o motivo é que esses tributos já estão embutidos no valor de cada item; o
-  // somatório aqui aparece zerado pra não duplicar visualmente. O Total da Nota
-  // sempre vem do <vNF> do XML.
-  const vals1 = [d.tot.vBC, d.tot.vICMS, 0, 0, 0, d.tot.vNF];
-  for (let i = 0; i < 6; i++) {
-    label(lbls1[i], M + wImp*i + wImp/2, y + 3, 'center');
-    if (i === 5) {
-      // Total da nota: destaque (negrito + maior)
-      pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(FZ.medium);
-    } else {
-      pdf.setFont('helvetica', 'normal');
-      pdf.setFontSize(FZ.valor);
-    }
-    txt(nBR(vals1[i]), M + wImp*i + wImp/2, y + 8.5, { align: 'center' });
+  // Cabeçalho — 4 colunas
+  const hTribHdr = 5.5;
+  fillRect(M, y, W, hTribHdr, FUNDO_CINZA);
+  rect(M, y, W, hTribHdr);
+  const colsTrib = [
+    { lbl: 'Tributo',                 w: 0.20, align: 'left'  },
+    { lbl: 'Base de cálculo (R$)',    w: 0.30, align: 'right' },
+    { lbl: 'Alíquota (%)',            w: 0.20, align: 'right' },
+    { lbl: 'Valor (R$)',              w: 0.30, align: 'right' },
+  ];
+  pdf.setFontSize(FZ.tabHdr);
+  pdf.setFont('helvetica', 'bold');
+  let xt = M;
+  for (const c of colsTrib) {
+    const cw = W * c.w;
+    if (xt !== M) line(xt, y, xt, y + hTribHdr);
+    txt(c.lbl, xt + cw/2, y + 3.7, { align: 'center' });
+    xt += cw;
   }
   pdf.setFont('helvetica', 'normal');
-  y += hImp;
+  y += hTribHdr;
 
-  // ════════════ BASE DE CÁLCULO DOS TRIBUTOS (NF3-e) ════════════
-  // Bloco com 3 linhas (ICMS, PASEP, COFINS) e 4 colunas:
-  //   Tributo | Base de cálculo (R$) | Alíquota (%) | Valor (R$)
-  // Só desenha se houver dados.tributos extraídos (NF3-e).
-  if (d.tributos) {
-    y += barraSecao('BASE DE CÁLCULO DOS TRIBUTOS', M, y, W);
+  // Linhas de dados — uma por tributo
+  // Convenção CEMIG: usa "PASEP" em vez de "PIS" (mesmo tributo, nomenclatura
+  // tradicional da contribuição ao Programa de Formação do Patrimônio do Servidor Público).
+  // Fallback para d.tot caso d.tributos não tenha sido extraído.
+  const trib = d.tributos || {};
+  const linhasTrib = [
+    { nome: 'ICMS',   bc: trib.icms?.bc   ?? d.tot.vBC, aliq: trib.icms?.aliq   ?? 0, valor: trib.icms?.valor   ?? d.tot.vICMS },
+    { nome: 'PASEP',  bc: trib.pis?.bc    ?? 0,         aliq: trib.pis?.aliq    ?? 0, valor: trib.pis?.valor    ?? 0 },
+    { nome: 'COFINS', bc: trib.cofins?.bc ?? 0,         aliq: trib.cofins?.aliq ?? 0, valor: trib.cofins?.valor ?? 0 },
+  ];
 
-    // Cabeçalho — 4 colunas
-    const hTribHdr = 5.5;
-    fillRect(M, y, W, hTribHdr, FUNDO_CINZA);
-    rect(M, y, W, hTribHdr);
-    const colsTrib = [
-      { lbl: 'Tributo',                 w: 0.20, align: 'left'  },
-      { lbl: 'Base de cálculo (R$)',    w: 0.30, align: 'right' },
-      { lbl: 'Alíquota (%)',            w: 0.20, align: 'right' },
-      { lbl: 'Valor (R$)',              w: 0.30, align: 'right' },
-    ];
-    pdf.setFontSize(FZ.tabHdr);
-    pdf.setFont('helvetica', 'bold');
-    let xt = M;
-    for (const c of colsTrib) {
+  const hTribRow = 5.5;
+  pdf.setFontSize(FZ.tabRow);
+  for (const t of linhasTrib) {
+    rect(M, y, W, hTribRow);
+    let xtr = M;
+    for (let i = 0; i < colsTrib.length; i++) {
+      const c = colsTrib[i];
       const cw = W * c.w;
-      if (xt !== M) line(xt, y, xt, y + hTribHdr);
-      txt(c.lbl, xt + cw/2, y + 3.7, { align: 'center' });
-      xt += cw;
-    }
-    pdf.setFont('helvetica', 'normal');
-    y += hTribHdr;
-
-    // Linhas de dados — uma por tributo
-    // Convenção CEMIG: usa "PASEP" em vez de "PIS" (mesmo tributo, nomenclatura
-    // tradicional da contribuição ao Programa de Formação do Patrimônio do Servidor Público).
-    const linhasTrib = [
-      { nome: 'ICMS',   ...d.tributos.icms   },
-      { nome: 'PASEP',  ...d.tributos.pis    },
-      { nome: 'COFINS', ...d.tributos.cofins },
-    ];
-
-    const hTribRow = 5.5;
-    pdf.setFontSize(FZ.tabRow);
-    for (const t of linhasTrib) {
-      rect(M, y, W, hTribRow);
-      let xtr = M;
-      for (let i = 0; i < colsTrib.length; i++) {
-        const c = colsTrib[i];
-        const cw = W * c.w;
-        if (xtr !== M) line(xtr, y, xtr, y + hTribRow);
-        let val = '';
-        switch (i) {
-          case 0: val = t.nome; break;
-          case 1: val = nBR(t.bc); break;
-          case 2: val = (t.aliq || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); break;
-          case 3: val = nBR(t.valor); break;
-        }
-        const xPos = c.align === 'right' ? xtr + cw - 2 : xtr + 2;
-        txt(val, xPos, y + 3.7, c.align === 'right' ? { align: 'right' } : undefined);
-        xtr += cw;
+      if (xtr !== M) line(xtr, y, xtr, y + hTribRow);
+      let val = '';
+      switch (i) {
+        case 0: val = t.nome; break;
+        case 1: val = nBR(t.bc); break;
+        case 2: val = (t.aliq || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); break;
+        case 3: val = nBR(t.valor); break;
       }
-      y += hTribRow;
+      const xPos = c.align === 'right' ? xtr + cw - 2 : xtr + 2;
+      txt(val, xPos, y + 3.7, c.align === 'right' ? { align: 'right' } : undefined);
+      xtr += cw;
     }
+    y += hTribRow;
   }
 
-  // Linha 2: CONSUMO HP | CONSUMO HFP | CONSUMO TOTAL | BANDEIRA
+  // Linha 2: CONSUMO HP | CONSUMO HFP | CONSUMO TOTAL
+  // (Bandeira tarifária não entra aqui — já consta no bloco UNIDADE CONSUMIDORA)
   // Calcula HP e HFP a partir dos itens de Encargo HP/HFP em kWh (uMed=2)
   let consHP = 0, consHFP = 0;
   for (const it of (d.itens || [])) {
@@ -4729,14 +4714,15 @@ function desenharDanf3e(pdf, d) {
 
   const hCons = 11;
   rect(M, y, W, hCons);
-  const wC = [W * 0.20, W * 0.20, W * 0.30, W - (W * 0.20 + W * 0.20 + W * 0.30)];
+  // 3 colunas: HP (30%) | HFP (30%) | TOTAL (40%, destacado)
+  const wC = [W * 0.30, W * 0.30, W * 0.40];
   let xc = M;
-  for (let i = 1; i < 4; i++) { xc += wC[i-1]; line(xc, y, xc, y + hCons); }
+  for (let i = 1; i < 3; i++) { xc += wC[i-1]; line(xc, y, xc, y + hCons); }
 
-  const consLabels = ['CONSUMO HP (kWh)','CONSUMO HFP (kWh)','CONSUMO TOTAL (kWh)','BANDEIRA'];
-  const consValores = [nINT(consHP), nINT(consHFP), nINT(consTot), d.uc?.bandeira || '—'];
+  const consLabels = ['CONSUMO HP (kWh)','CONSUMO HFP (kWh)','CONSUMO TOTAL (kWh)'];
+  const consValores = [nINT(consHP), nINT(consHFP), nINT(consTot)];
   xc = M;
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < 3; i++) {
     label(consLabels[i], xc + wC[i]/2, y + 3, 'center');
     if (i === 2) {
       pdf.setFont('helvetica', 'bold');
@@ -4797,7 +4783,7 @@ function desenharDanf3e(pdf, d) {
   pdf.setFontSize(FZ.rodape);
   pdf.setFont('helvetica', 'italic');
   pdf.setTextColor(120);
-  txt('Reprodução do DANF3E gerada a partir do XML — Sistema interno · Desenvolvido por Wendell França',
+  txt('Reprodução do XML — Sistema interno · Desenvolvido por Wendell França',
       M + W/2, PAGE_H - 3, { align: 'center' });
   pdf.setTextColor(0);
   pdf.setFont('helvetica', 'normal');
@@ -5470,6 +5456,15 @@ function desenharDanfe(pdf, d) {
     const linhasFisco = pdf.splitTextToSize(textoFisco, W - wInfo - 3);
     txt(linhasFisco.slice(0, maxLinhas).join('\n'), M + wInfo + 1, y + 5);
   }
+
+  // ════════════ RODAPÉ ════════════
+  pdf.setFontSize(6);
+  pdf.setFont('helvetica', 'italic');
+  pdf.setTextColor(120);
+  txt('Reprodução do XML — Sistema interno · Desenvolvido por Wendell França',
+      M + W/2, PAGE_H - 3, { align: 'center' });
+  pdf.setTextColor(0);
+  pdf.setFont('helvetica', 'normal');
 }
 // Gera o PDF com DANFEs de todas as notas atualmente filtradas na aba Dados (categoria GÁS)
 async function gerarDanfesFiltradas() {
