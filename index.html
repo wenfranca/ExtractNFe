@@ -1109,6 +1109,15 @@ const LOJA_TO_CNPJ = Object.fromEntries(
   Object.entries(CNPJ_TO_LOJA).map(([cnpj, loja]) => [loja, cnpj])
 );
 
+// ====== MAPA REVERSO: LOJA → IE canônica ======
+// Derivado automaticamente de IE_TO_LOJA. Usado em conjunto com LOJA_TO_CNPJ
+// para sobrescrever a IE do destinatário na DANF3E quando a UC do XML
+// resolver para uma loja mas a concessionária tiver cadastrado IE divergente
+// (ou nem tiver cadastrado IE).
+const LOJA_TO_IE = Object.fromEntries(
+  Object.entries(IE_TO_LOJA).map(([ie, loja]) => [loja, ie])
+);
+
 /**
  * Resolve o número da loja a partir dos dados do destinatário/UC do XML.
  * Hierarquia (mais confiável → menos confiável):
@@ -3838,6 +3847,31 @@ function extrairDadosDanfe(xmlStr) {
     if (linhasExtras.length) {
       dados.infCpl = linhasExtras.join('  ·  ') + (dados.infCpl ? '\n' + dados.infCpl : '');
     }
+  }
+
+  // ─── Sobrescrita do destinatário pelo cadastro canônico Mart Minas ───
+  // Quando a UC (idAcesso) — ou em fallback a IE/CNPJ do XML — resolve para
+  // uma loja conhecida, força o CNPJ e a IE do destinatário a serem os
+  // canônicos do cadastro Mart Minas. Cobre o caso clássico onde a CEMIG
+  // emite a NF3-e da UC da loja X mas com IE/CNPJ vazios ou de outra filial.
+  // Sem isso, a DANF3E sai com IE em branco ou CNPJ "errado".
+  try {
+    const lojaResolvida = extrairLoja(
+      dados.dest?.cnpjCpf,
+      dados.dest?.ie,
+      dados.uc?.idAcesso
+    );
+    if (lojaResolvida) {
+      if (LOJA_TO_CNPJ[lojaResolvida]) {
+        dados.dest.cnpjCpf = LOJA_TO_CNPJ[lojaResolvida];
+      }
+      if (LOJA_TO_IE[lojaResolvida]) {
+        dados.dest.ie = LOJA_TO_IE[lojaResolvida];
+      }
+      dados.dest.lojaResolvida = lojaResolvida;
+    }
+  } catch (e) {
+    console.warn('[extrairDadosDanfe] Falha ao normalizar destinatário pela UC:', e);
   }
 
   return dados;
