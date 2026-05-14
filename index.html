@@ -3692,6 +3692,23 @@ function extrairDadosDanfe(xmlStr) {
           valor: dados.tot.vNF || 0
         });
       }
+      // ── Código de barras de pagamento (NF3-e CEMIG e similares) ──
+      // Tag <codBarras> dentro de <gFat> traz a sequência de 44 ou 48 dígitos
+      // do padrão FEBRABAN de arrecadação (concessionária). Guardamos em
+      // dados.pagamento pra desenhar a seção dedicada na DANFE.
+      const codBarras = (g('codBarras', gFat) || '').replace(/\D/g, '');
+      const codDebAuto = g('codDebAuto', gFat);
+      const urlPix = g('urlQRCodePIX', gFat) || g('urlQRCode', gFat);
+      if (codBarras || urlPix) {
+        dados.pagamento = {
+          codBarras: codBarras,
+          codDebAuto: codDebAuto,
+          urlPix: urlPix,
+          venc: dVenc,
+          nFat: nFat,
+          valor: dados.tot.vNF || 0
+        };
+      }
     }
   } else {
     const cobrEl = findFirst('cobr');
@@ -3709,6 +3726,37 @@ function extrairDadosDanfe(xmlStr) {
   // ─── informações complementares ───
   dados.infCpl = g('infAdic > infCpl') || '';
   dados.infAdFisco = g('infAdic > infAdFisco') || '';
+
+  // ── Fallback do código de barras para NF-e 55 (gás, etc) ──
+  // Algumas concessionárias colocam o código de barras de pagamento direto
+  // no infCpl. Procuramos uma sequência de 44 ou 47/48 dígitos isolada.
+  // Só aplica se ainda não pegamos pelo gFat (NF3-e).
+  if (!dados.pagamento) {
+    const txt = dados.infCpl + ' ' + dados.infAdFisco;
+    // tenta 48, depois 47, depois 44 dígitos contínuos (com possíveis espaços/pontos)
+    const tentativas = [
+      /\b(\d[\d.\s]{47,55}\d)\b/, // ~48 com separadores
+      /(\d{48})/,
+      /(\d{47})/,
+      /(\d{44})/
+    ];
+    for (const re of tentativas) {
+      const m = txt.match(re);
+      if (m) {
+        const clean = m[1].replace(/\D/g, '');
+        // valida tamanho útil
+        if (clean.length === 44 || clean.length === 47 || clean.length === 48) {
+          dados.pagamento = {
+            codBarras: clean,
+            venc: dados.dups[0]?.venc || '',
+            nFat:  dados.dups[0]?.num || '',
+            valor: dados.tot.vNF || 0
+          };
+          break;
+        }
+      }
+    }
+  }
 
   // ─── específicos da NF3-e: acessante (UC), bandeira, leituras ───
   // Anexamos no campo infCpl pra aparecer no rodapé "Informações Complementares".
@@ -3931,6 +3979,102 @@ function gerarCodigoBarras(chave) {
     // limpa canvas do DOM
     try { document.body.removeChild(canvas); } catch (_) {}
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// CÓDIGO DE BARRAS DE PAGAMENTO (FEBRABAN — arrecadação de concessionária)
+// ─────────────────────────────────────────────────────────────────────
+// Padrão FEBRABAN arrecadação: 44 dígitos (sem DV intercalado) ou 48 dígitos
+// (com 4 DVs nas posições 12, 24, 36, 48). O código de barras IMPRESSO é
+// Interleaved 2 of 5 (ITF) de 44 dígitos — quando recebemos 48, removemos
+// os DVs pra gerar o ITF. A "linha digitável" mostrada acima do código é
+// a versão de 48 dígitos formatada em 4 blocos.
+//
+// Estrutura do código de 44 dígitos para arrecadação (começa com "8"):
+//   pos 1     : produto (sempre 8 = arrecadação)
+//   pos 2     : segmento (3 = concessionária energia/água/gás)
+//   pos 3     : identificador de valor (efetivo/referência)
+//   pos 4     : DV geral (módulo 10 ou 11)
+//   pos 5-15  : valor (11 dígitos, 2 casas decimais)
+//   pos 16-44 : campo livre da concessionária
+//
+// Quando vem com 48 dígitos, os DVs intermediários ficam nas posições
+// 12, 24, 36 e 48 (1-indexed); pra gerar o ITF precisamos removê-los.
+
+function montar44De48(cod48) {
+  // remove os DVs das posições 12, 24, 36 e 48 (índices 11, 23, 35, 47)
+  // resultado = 11 + 11 + 11 + 11 = 44 dígitos
+  const s = String(cod48);
+  return s.substr(0, 11) + s.substr(12, 11) + s.substr(24, 11) + s.substr(36, 11);
+}
+
+function gerarCodigoBarrasPagamento(codigo) {
+  if (typeof JsBarcode === 'undefined') {
+    console.warn('[DANFE-PAG] JsBarcode não carregada');
+    return null;
+  }
+  let limpa = String(codigo || '').replace(/\D/g, '');
+  // Aceita 44 ou 48 dígitos. Converte 48→44 (remove DVs intercalados)
+  if (limpa.length === 48) {
+    limpa = montar44De48(limpa);
+  } else if (limpa.length !== 44) {
+    console.warn('[DANFE-PAG] Código com tamanho inválido (esperado 44 ou 48, recebido ' + limpa.length + ')');
+    return null;
+  }
+
+  // ITF (Interleaved 2 of 5) exige número PAR de dígitos — 44 é par, OK
+  const canvas = document.createElement('canvas');
+  canvas.width = 800;
+  canvas.height = 80;
+  canvas.style.position = 'absolute';
+  canvas.style.left = '-9999px';
+  canvas.style.top = '-9999px';
+  canvas.style.visibility = 'hidden';
+  document.body.appendChild(canvas);
+
+  try {
+    JsBarcode(canvas, limpa, {
+      format: 'ITF',          // Interleaved 2 of 5 — padrão FEBRABAN
+      width: 1.6,
+      height: 60,
+      displayValue: false,
+      margin: 0,
+      background: '#ffffff',
+      lineColor: '#000000'
+    });
+    const dataUrl = canvas.toDataURL('image/png');
+    if (!dataUrl || !dataUrl.startsWith('data:image/png') || dataUrl.length < 500) {
+      console.warn('[DANFE-PAG] Data URL inválida (' + (dataUrl?.length || 0) + ' bytes)');
+      return null;
+    }
+    console.log('[DANFE-PAG] Barcode pagamento gerado OK (' + dataUrl.length + ' bytes)');
+    return dataUrl;
+  } catch (e) {
+    console.warn('[DANFE-PAG] Falha:', e.message || e);
+    return null;
+  } finally {
+    try { document.body.removeChild(canvas); } catch (_) {}
+  }
+}
+
+// Formata a linha digitável de arrecadação (48 dígitos) em 4 blocos
+// padrão: "NNNNNNNNNNN-D NNNNNNNNNNN-D NNNNNNNNNNN-D NNNNNNNNNNN-D"
+// (11 dígitos + DV em cada bloco, separados por espaço)
+function fmtLinhaDigitavel(codigo) {
+  const s = String(codigo || '').replace(/\D/g, '');
+  if (s.length !== 48) {
+    // Se veio 44, não tem DVs intermediários — formata só em blocos visuais
+    if (s.length === 44) {
+      return s.replace(/(\d{11})(\d{11})(\d{11})(\d{11})/, '$1 $2 $3 $4');
+    }
+    return s;
+  }
+  // 48 dígitos: 4 grupos de 11+1 (DV)
+  const b1 = s.substr(0, 11)  + '-' + s.substr(11, 1);
+  const b2 = s.substr(12, 11) + '-' + s.substr(23, 1);
+  const b3 = s.substr(24, 11) + '-' + s.substr(35, 1);
+  const b4 = s.substr(36, 11) + '-' + s.substr(47, 1);
+  return b1 + ' ' + b2 + ' ' + b3 + ' ' + b4;
 }
 
 // Formata CNPJ ou CPF
@@ -4790,6 +4934,47 @@ function desenharDanf3e(pdf, d) {
   pdf.setTextColor(0);
   y += hChave;
 
+  // ════════════ CÓDIGO DE BARRAS PARA PAGAMENTO ════════════
+  // Só desenha se o XML trouxe dados em <gFat><codBarras>
+  if (d.pagamento && d.pagamento.codBarras) {
+    y += barraSecao('CÓDIGO DE BARRAS PARA PAGAMENTO', M, y, W);
+
+    const hPag = 18;
+    rect(M, y, W, hPag);
+
+    // Linha digitável (em cima, fonte maior, negrito)
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(FZ.medium);
+    pdf.setTextColor(0);
+    const linhaDig = fmtLinhaDigitavel(d.pagamento.codBarras);
+    txt(linhaDig, M + W/2, y + 4, { align: 'center' });
+
+    // Barcode ITF (FEBRABAN arrecadação) no centro/embaixo
+    try {
+      const barcodePagPng = gerarCodigoBarrasPagamento(d.pagamento.codBarras);
+      if (barcodePagPng) {
+        // Centralizado, ocupando ~70% da largura
+        const wBar = W * 0.70;
+        const hBar = 11;
+        const xBar = M + (W - wBar) / 2;
+        pdf.addImage(barcodePagPng, 'PNG', xBar, y + 5.5, wBar, hBar, undefined, 'FAST');
+        console.log('[DANF3E] ✔ Código de barras de pagamento adicionado');
+      } else {
+        // Fallback: mostra o número sem o barcode
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(FZ.label);
+        pdf.setTextColor(120);
+        txt('(código de barras indisponível — use a linha digitável acima)',
+            M + W/2, y + 12, { align: 'center' });
+      }
+    } catch (e) {
+      console.warn('[DANF3E] Falha ao desenhar barcode de pagamento:', e);
+    }
+    pdf.setTextColor(0);
+    pdf.setFont('helvetica', 'normal');
+    y += hPag;
+  }
+
   // ════════════ INFORMAÇÕES COMPLEMENTARES ════════════
   y += barraSecao('INFORMAÇÕES COMPLEMENTARES', M, y, W);
 
@@ -5489,6 +5674,35 @@ function desenharDanfe(pdf, d) {
   if (textoFisco) {
     const linhasFisco = pdf.splitTextToSize(textoFisco, W - wInfo - 3);
     txt(linhasFisco.slice(0, maxLinhas).join('\n'), M + wInfo + 1, y + 5);
+  }
+
+  // ════════════ CÓDIGO DE BARRAS PARA PAGAMENTO ════════════
+  // Se o XML trouxe (ou achamos no infCpl), desenha no canto inferior direito,
+  // sobreposto ao "RESERVADO AO FISCO" (que normalmente vem vazio).
+  if (d.pagamento && d.pagamento.codBarras) {
+    try {
+      const barcodePagPng = gerarCodigoBarrasPagamento(d.pagamento.codBarras);
+      const xBar = M + wInfo + 2;
+      const yBar = y + 7;
+      const wBar = W - wInfo - 4;
+
+      pdf.setFontSize(FZ.label);
+      pdf.setFont('helvetica', 'bold');
+      txt('CÓDIGO DE BARRAS PARA PAGAMENTO', xBar, yBar);
+
+      // linha digitável
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(FZ.info);
+      const ld = fmtLinhaDigitavel(d.pagamento.codBarras);
+      const ldLinhas = pdf.splitTextToSize(ld, wBar);
+      txt(ldLinhas.join('\n'), xBar, yBar + 3);
+
+      if (barcodePagPng) {
+        pdf.addImage(barcodePagPng, 'PNG', xBar, yBar + 7, wBar, 10, undefined, 'FAST');
+      }
+    } catch (e) {
+      console.warn('[DANFE-55] Falha ao desenhar barcode pagamento:', e);
+    }
   }
 
   // ════════════ RODAPÉ ════════════
